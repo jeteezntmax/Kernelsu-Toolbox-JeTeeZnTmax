@@ -4932,10 +4932,14 @@ function gaPaint(){
     gaRun("set apps '' ; sh \"$B\" set app '' ; sh \"$B\" set uid ''", 20000).then(function(){ p.app=""; p.apps=""; p.uid=""; gaLoad(); toast("已清除目标"); });
   };
   const st = $("gaStart"); if(st) st.onclick = gaStartSvc;
-  const hr = $("gaHudReset"); if(hr) hr.onclick = function(){
-    sh("am startservice -n " + GA_PKG + "/.PerfService 2>&1", 15000);
-    sh("rm -f /data/data/" + GA_PKG + "/shared_prefs/perfhud.xml 2>/dev/null", 12000);
-    toast("已重置提示列表位置（要等它下次刷新）");
+  const hr = $("gaHudReset"); if(hr) hr.onclick = async function(){
+    // 直接让服务把位置挪回右上角（删 prefs 文件没用：SharedPreferences 有内存缓存）
+    busy(true, "重置中");
+    try{
+      const r = await sh("am start-foreground-service -n " + GA_PKG + "/.PerfService -a com.jeteezntmax.toolbox.RESET_PERF_HUD 2>&1", 15000);
+      const o = String(r.stdout || "");
+      toast(/Error|Exception/i.test(o) ? ("发送失败：" + o.slice(0, 60)) : "已发送重置指令（提示悬浮窗会回到右上角）");
+    }finally{ busy(false); }
   };
   gaHudItemsPaint();
   gaTitlePaint();

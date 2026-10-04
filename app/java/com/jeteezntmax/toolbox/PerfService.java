@@ -41,6 +41,7 @@ public class PerfService extends Service {
     public static final String ACTION_MENU = "com.jeteezntmax.toolbox.SHOW_PERF_MENU";
     public static final String ACTION_HIDE_MENU = "com.jeteezntmax.toolbox.HIDE_PERF_MENU";
     public static final String ACTION_TOGGLE_HUD = "com.jeteezntmax.toolbox.TOGGLE_PERF_HUD";
+    public static final String ACTION_RESET_HUD = "com.jeteezntmax.toolbox.RESET_PERF_HUD";
     private static final int NOTI_ID = 0x4A57;
     private static final String CH_ID = "jeteez_perf";
     private static final String PREF = "perfhud";
@@ -69,7 +70,8 @@ public class PerfService extends Service {
     private String hudItems = "", cpuKhz = "", cpuMax = "", battUa = "", battUv = "", tempC = "";
     private String hudTitle = "";      // 最上面那行自定义标题（%s = 启用/停用）
     private float fontSp = 0f;
-    private boolean hudMuted = false;   // 双击音量键临时关掉提示悬浮窗         // WebUI 里选的字号（0 = 还没读到，用视图默认）
+    private boolean hudMuted = false;   // 双击音量键临时关掉提示悬浮窗
+    private String hudErr = null;       // 加不上窗口的原因（排错用，会显示在提示里）         // WebUI 里选的字号（0 = 还没读到，用视图默认）
     private int drift = 0;
     private double fps2 = -1;
     private long frameN = 0, fpsBaseMs = 0;
@@ -193,6 +195,21 @@ public class PerfService extends Service {
             }}).start();
             return START_STICKY;
         }
+        if (intent != null && ACTION_RESET_HUD.equals(intent.getAction())) {
+            ui.post(new Runnable() { public void run() {
+                // 真的把位置挪回右上角（光删 prefs 文件没用 —— SharedPreferences 有内存缓存）
+                if (hudLp != null) {
+                    hudLp.x = dp(6);
+                    hudLp.y = dp(40);
+                    try { if (hud != null && wm != null) wm.updateViewLayout(hud, hudLp); } catch (Exception ignored) { }
+                }
+                getSharedPreferences(PREF, MODE_PRIVATE).edit().putInt("hx", dp(6)).putInt("hy", dp(40)).apply();
+                hudMuted = false;
+                refreshHud();
+                toastMsg("提示悬浮窗位置已重置");
+            }});
+            return START_STICKY;
+        }
         if (intent != null && ACTION_TOGGLE_HUD.equals(intent.getAction())) {
             ui.post(new Runnable() { public void run() {
                 hudMuted = !hudMuted;
@@ -201,8 +218,14 @@ public class PerfService extends Service {
                 if (hudMuted) tip = "功能悬浮窗：关（再双击开回来）";
                 else if ("0".equals(hudOn)) tip = "功能悬浮窗：开，但设置里把它关了";
                 else if (!"1".equals(enabled)) tip = "功能悬浮窗：开，但总开关没开（所以看不到）";
-                else tip = "功能悬浮窗：开";
-                toastMsg(tip);
+                else if (hud == null || hud.getVisibility() != View.VISIBLE) {
+                    ensureHud();
+                    if (hud != null) refreshHud();
+                    if (hud == null || hud.getVisibility() != View.VISIBLE)
+                        tip = "功能悬浮窗：开，但没显示出来 —— " + (hudErr == null ? "原因不明" : hudErr);
+                    else tip = "功能悬浮窗：开";
+                } else tip = "功能悬浮窗：开";
+                toastMsg(tip.length() > 90 ? tip.substring(0, 90) : tip);
             }});
             return START_STICKY;
         }
@@ -377,6 +400,13 @@ public class PerfService extends Service {
 
     private void ensureHud() {
         if (hud != null || wm == null) return;
+        // ① 有没有"显示在其他应用上层"权限
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !android.provider.Settings.canDrawOverlays(this)) {
+                hudErr = "没有悬浮窗权限（去应用设置里打开「显示在其他应用上层」）";
+                return;
+            }
+        } catch (Exception ignored) { }
         hud = new FeatureHudView(this);
         if (fontSp >= 8f) hud.setFontSp(fontSp);
         SharedPreferences sp = getSharedPreferences(PREF, MODE_PRIVATE);
@@ -391,8 +421,16 @@ public class PerfService extends Service {
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
         hudLp.gravity = Gravity.TOP | Gravity.END;      // 默认贴右上角
-        hudLp.x = sp.getInt("hx", dp(6));
-        hudLp.y = sp.getInt("hy", dp(40));
+        // 注意：TOP|END 时 x 是从【右边缘】量的 —— 负数就是跑到屏幕外面去了。
+        // 之前"拖动镜像"那个 bug 会把坐标存成很负的数，这里必须夹一次，
+        // 否则窗口加是加上了，但用户在屏幕上看不到（"显示开却没出来"就是这个）。
+        int sw = getResources().getDisplayMetrics().widthPixels;
+        int shh = getResources().getDisplayMetrics().heightPixels;
+        int hx = sp.getInt("hx", dp(6)), hy = sp.getInt("hy", dp(40));
+        if (hx < 0 || hx > sw - dp(60)) hx = dp(6);
+        if (hy < 0 || hy > shh - dp(60)) hy = dp(40);
+        hudLp.x = hx;
+        hudLp.y = hy;
         hud.setDragHost(new FeatureHudView.DragHost() {
             private long lastSave = 0;
             public void onDrag(int dx, int dy) {
@@ -411,7 +449,13 @@ public class PerfService extends Service {
                 }
             }
         });
-        try { wm.addView(hud, hudLp); } catch (Exception e) { hud = null; }
+        try {
+            wm.addView(hud, hudLp);
+            hudErr = null;
+        } catch (Exception e) {
+            hudErr = "加不上窗口：" + e;
+            hud = null;
+        }
     }
 
     /**
