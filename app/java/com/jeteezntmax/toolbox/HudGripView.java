@@ -19,7 +19,6 @@ public class HudGripView extends View {
 
     public interface DragHost { void onDrag(int dx, int dy); }
 
-    private final Paint pBg = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pDot = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final float density;
     private DragHost host;
@@ -28,9 +27,6 @@ public class HudGripView extends View {
     public HudGripView(Context c) {
         super(c);
         density = c.getResources().getDisplayMetrics().density;
-        pBg.setColor(0x66000000);
-        pBg.setStyle(Paint.Style.FILL);
-        pDot.setColor(0xCC9AA7B4);
         pDot.setStyle(Paint.Style.FILL);
     }
 
@@ -38,16 +34,14 @@ public class HudGripView extends View {
 
     public void setDragHost(DragHost h) { host = h; }
 
+    private boolean pressed = false;
+
     @Override
     protected void onDraw(Canvas cv) {
-        float W = getWidth(), H = getHeight();
-        RectF r = new RectF(dp(2), dp(2), W - dp(2), H - dp(2));
-        cv.drawRoundRect(r, dp(7), dp(7), pBg);
-        // 三个小点，看起来像个"把手"
-        float cx = W / 2f, cy = H / 2f, gap = dp(4.2f);
-        cv.drawCircle(cx, cy - gap, dp(1.5f), pDot);
-        cv.drawCircle(cx, cy, dp(1.5f), pDot);
-        cv.drawCircle(cx, cy + gap, dp(1.5f), pDot);
+        // 平时几乎看不见（一个很淡的小点），按住拖动时才亮一点 —— 作者嫌原来那三个点太丑
+        float r = pressed ? dp(2.7f) : dp(2.1f);
+        pDot.setColor(pressed ? 0x99E8ECF2 : 0x40E8ECF2);
+        cv.drawCircle(getWidth() / 2f, getHeight() / 2f, r, pDot);
     }
 
     @Override
@@ -55,12 +49,17 @@ public class HudGripView extends View {
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 downX = e.getRawX(); downY = e.getRawY();
+                pressed = true; invalidate();
                 return true;
             case MotionEvent.ACTION_MOVE:
                 if (host != null) {
                     host.onDrag((int) (e.getRawX() - downX), (int) (e.getRawY() - downY));
                     downX = e.getRawX(); downY = e.getRawY();
                 }
+                return true;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                pressed = false; invalidate();
                 return true;
         }
         return true;

@@ -72,6 +72,7 @@ public class PerfService extends Service {
     private float fontSp = 0f;
     private boolean hudMuted = false;   // 双击音量键临时关掉提示悬浮窗
     private String hudErr = null;       // 加不上窗口的原因（排错用，会显示在提示里）
+    private String hudQuad = "", hudDesc = "";
     private HudGripView grip;           // 拖动把手（文字那层是触摸穿透的，拖不动）
     private WindowManager.LayoutParams gripLp;         // WebUI 里选的字号（0 = 还没读到，用视图默认）
     private int drift = 0;
@@ -226,7 +227,7 @@ public class PerfService extends Service {
                     if (hud == null || hud.getVisibility() != View.VISIBLE)
                         tip = "功能悬浮窗：开，但没显示出来 —— " + (hudErr == null ? "原因不明" : hudErr);
                     else tip = "功能悬浮窗：开";
-                } else tip = "功能悬浮窗：开";
+                } else tip = "功能悬浮窗：开" + (hudQuad.isEmpty() ? "" : ("（" + hudQuad + " · " + hudDesc + "）"));
                 toastMsg(tip.length() > 90 ? tip.substring(0, 90) : tip);
             }});
             return START_STICKY;
@@ -578,7 +579,9 @@ public class PerfService extends Service {
                 hudLp.x -= dx;                 // Gravity.END：往右拖 = x 变小
                 hudLp.y += dy;
                 if (hudLp.x < 0) hudLp.x = 0;
+                if (hudLp.x > screenSize()[0] - dp(40)) hudLp.x = Math.max(0, screenSize()[0] - dp(40));
                 if (hudLp.y < 0) hudLp.y = 0;
+                if (hudLp.y > screenSize()[1] - dp(40)) hudLp.y = Math.max(0, screenSize()[1] - dp(40));
                 syncGripPos();
                 try { if (hud != null) wm.updateViewLayout(hud, hudLp); } catch (Exception ignored) { }
                 try { wm.updateViewLayout(grip, gripLp); } catch (Exception ignored) { }
@@ -602,16 +605,32 @@ public class PerfService extends Service {
         gripLp.y = Math.max(0, hudLp.y - dp(1));
     }
 
+    /** 当前屏幕的宽高：优先 WindowMetrics（跟着朝向走），退路 DisplayMetrics */
+    private int[] screenSize() {
+        try {
+            if (Build.VERSION.SDK_INT >= 30 && wm != null) {
+                android.graphics.Rect b = wm.getCurrentWindowMetrics().getBounds();
+                if (b.width() > 0 && b.height() > 0) return new int[]{b.width(), b.height()};
+            }
+        } catch (Exception ignored) { }
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        return new int[]{dm.widthPixels, dm.heightPixels};
+    }
+
     /** 按【当前屏幕】所在象限决定排版（横竖屏都会重算） */
     private void updateHudLayout() {
         if (hud == null || hudLp == null) return;
-        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
-        int sw = dm.widthPixels, sh = dm.heightPixels;
+        int[] sz = screenSize();
+        int sw = sz[0], sh = sz[1];
         int w = (hud.getWidth() > 0) ? hud.getWidth() : dp(90);
         int h = (hud.getHeight() > 0) ? hud.getHeight() : dp(60);
-        int leftPx = sw - hudLp.x - w;
+        int leftPx = sw - hudLp.x - w;                 // 左边缘到屏幕左边
         boolean alignRight = (leftPx + w / 2) > sw / 2;
+        // 用屏幕的"中线"分上下：整块的中心过了中线就算下半屏
+        // （横屏时 sw/sh 会互换，所以这里是按当前朝向算的）
         boolean topHalf = (hudLp.y + h / 2) < sh / 2;
+        hudQuad = (topHalf ? "上" : "下") + (alignRight ? "右" : "左");
+        hudDesc = topHalf ? "字号向下递减" : "字号向下递增";
         hud.setLayoutMode(alignRight, topHalf);
     }
 
