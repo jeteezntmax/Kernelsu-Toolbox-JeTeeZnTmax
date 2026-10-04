@@ -1321,6 +1321,54 @@ function perfHTML(){
     <section class="card core-list" id="coreList"></section>
     <div class="section-head"><h2>运行状态</h2></div>
     <section class="card row-list" id="perfRows"></section>
+    <div class="section-head"><h2>游戏加速</h2><span class="hint" id="gaHint">音量键菜单</span></div>
+    <section class="card file-card">
+      <div class="tagrow">
+        <button class="chip-btn" id="gaEnable">总开关</button>
+        <button class="chip-btn" id="gaStart">启动加速服务</button>
+        <button class="chip-btn" id="gaAccBtn">音量键菜单</button>
+      </div>
+      <p class="field-hint" id="gaStat">正在读配置…</p>
+      <p class="field-hint" id="gaRaw" style="opacity:.75"></p>
+
+      <label style="margin-top:10px">目标应用（按它的 uid 绑定，不做前台猜测）</label>
+      <div class="tagrow">
+        <button class="chip-btn" id="gaPick">从已安装应用里挑</button>
+        <button class="chip-btn" id="gaClear" style="color:var(--red)">清除目标</button>
+      </div>
+      <p class="field-hint" id="gaAppHint">还没有选目标应用。</p>
+
+      <label style="margin-top:10px">CPU 锁频（超大核 min=max）</label>
+      <div class="tagrow" id="gaFreq"></div>
+      <label style="margin-top:10px">调速器</label>
+      <div class="tagrow" id="gaGov"></div>
+      <label style="margin-top:10px">线程绑定</label>
+      <div class="tagrow" id="gaAff"></div>
+      <label style="margin-top:10px">刷新率</label>
+      <div class="tagrow" id="gaRr"></div>
+
+      <label style="margin-top:10px">悬浮提示</label>
+      <div class="tagrow">
+        <button class="chip-btn" id="gaHud">功能提示列表</button>
+        <button class="chip-btn" id="gaHudReset">重置它位置</button>
+      </div>
+      <label style="margin-top:10px">提示里显示哪些系统参数</label>
+      <div class="tagrow" id="gaHudItems"></div>
+      <label style="margin-top:6px">最上面那行标题（<code>%s</code> = 启用/停用）</label>
+      <div class="tagrow">
+        <input class="modern-input" id="gaTitle" placeholder="KSU工具箱-游戏加速：%s" autocomplete="off" spellcheck="false">
+        <button class="chip-btn" id="gaTitleSave">保存</button>
+      </div>
+      <label style="margin-top:10px">清后台白名单（这些应用的后台不动）</label>
+      <div class="tagrow">
+        <button class="chip-btn" id="gaWlPick">选择应用</button>
+        <button class="chip-btn" id="gaWlClear" style="color:var(--red)">清空</button>
+      </div>
+      <p class="field-hint">目标应用**永远**自动在白名单里；白名单里的应用不会被「清后台」动到（比如微信想留着收消息就加进去）。</p>
+      <p class="field-hint">打开的功能会贴在屏幕右上角，一行一个（字多的在上面），可以拖着挪。
+      长按音量上键（0.6 秒）呼出菜单，短按照旧调音量。目标应用一进前台就自动应用，退出自动还原。</p>
+    </section>
+
     <div class="section-head"><h2>刷新率锁定</h2><span class="hint" id="rrHint">扫描档位</span></div>
     <section class="card file-card">
       <div class="tagrow">
@@ -4747,6 +4795,340 @@ function guardInit(){
 }
 
 /* ============================================================
+ *  11.7a 游戏加速（音量键菜单 + 按 uid 自动应用）
+ *  后端 bin/perfmode.sh；App 端 PerfService 每 2 秒问一次"目标 uid 在不在前台"
+ * ============================================================ */
+const GA_DIR = "/data/adb/ksu_toolbox/perf";
+const GA_PKG = "com.jeteezntmax.toolbox";
+const GA_ACC = GA_PKG + "/" + GA_PKG + ".KeyWatcher";
+function gaBin(){
+  return 'B=""; for c in /data/adb/modules_update/ksu_toolbox/bin/perfmode.sh /data/adb/modules/ksu_toolbox/bin/perfmode.sh /data/adb/modules/ksu_toolbox-update/bin/perfmode.sh; do [ -f "$c" ] && { B="$c"; break; }; done; [ -z "$B" ] && { echo "@@NOBIN"; exit 9; }; ';
+}
+function gaState(){
+  if(!state.ga) state.ga = {ready:false, cfg:{}, freqs:[], govs:[], rates:[], app:"", uid:"", label:{}};
+  return state.ga;
+}
+async function gaRun(args, ms){
+  if(thermalState().demo){ toast("演示模式：未执行"); return "@@DEMO"; }
+  try{
+    const r = await sh(gaBin() + 'sh "$B" ' + args + " 2>&1", ms || 25000);
+    return String(r.stdout || "");
+  }catch(e){ return "ERR " + ((e && e.message) || e); }
+}
+function gaRaw(t){
+  const e = $("gaRaw");
+  if(e) e.textContent = t ? ("最近一次命令输出：" + String(t).replace(/\s+/g, " ").slice(0, 220)) : "";
+}
+async function gaLoad(){
+  const p = gaState();
+  let out = "";
+  try{ out = await gaRun("check", 30000); }catch(e){ out = "ERR " + ((e && e.message) || e); }
+  gaRaw(out);
+  if(out.indexOf("@@NOBIN") >= 0){
+    if($("gaStat")) $("gaStat").textContent = "⚠ 找不到 bin/perfmode.sh —— 模块没装全（或模块目录里没有 bin/perfmode.sh）";
+    return;
+  }
+  if(out.indexOf("ERR") === 0 || !out.trim()){
+    if($("gaStat")) $("gaStat").textContent = "⚠ 读不到状态：" + out.slice(0, 90) + " —— 检查 App 的 root 授权";
+    return;
+  }
+  out.split("\n").forEach(function(L){
+    const i = L.indexOf("="); if(i < 0) return;
+    const k = L.slice(0,i).trim(), v = L.slice(i+1).trim();
+    if(k === "list") return;
+    p.cfg[k] = v;
+  });
+  p.app = p.cfg.app || ""; p.uid = p.cfg.uid || "";
+  if(!p.freqs.length){
+    try{
+      const f = await gaRun("freqs", 20000);
+      const m = /freqs=([^\n]*)/.exec(f);
+      if(m && m[1]) p.freqs = m[1].split(",").filter(Boolean).slice(0, 8);
+      const g = await gaRun("govs", 20000);
+      const m2 = /govs=([^\n]*)/.exec(g);
+      if(m2 && m2[1]) p.govs = m2[1].split(",").filter(Boolean);
+      const r = await sh("cat /data/adb/ksu_toolbox/refresh/rates 2>/dev/null", 12000);
+      const t = String(r.stdout || "").trim();
+      if(t) p.rates = t.split(",").filter(Boolean);
+    }catch(e){}
+  }
+  if(p.app && !p.label[p.app]){
+    try{ const pi = packagesInfo([p.app]); if(pi && pi[0]) p.label[p.app] = pi[0].appLabel || ""; }catch(e){}
+  }
+  p.ready = true;
+  gaPaint();
+}
+function gaChip(key, val, label){
+  const p = gaState();
+  const cur = p.cfg[key] === undefined ? "" : String(p.cfg[key]);
+  const on = cur === String(val);
+  return '<button class="chip-btn" data-gk="' + key + '" data-gv="' + esc(val) + '"' +
+    (on ? ' style="background:var(--blue-soft);color:var(--blue)"' : '') + '>' + esc(label) + '</button>';
+}
+function gaPaint(){
+  const p = gaState();
+  const f = $("gaFreq"), g = $("gaGov"), a = $("gaAff"), r = $("gaRr");
+  if(f){
+    let h = gaChip("freq","0","不动");
+    p.freqs.slice(0,5).forEach(function(k){ const ghz = (parseInt(k,10)/1e6).toFixed(2); h += gaChip("freq", k, ghz+"G"); });
+    f.innerHTML = h;
+  }
+  if(g){
+    let h = gaChip("gov","","不动");
+    p.govs.forEach(function(v){ h += gaChip("gov", v, v); });
+    g.innerHTML = h;
+  }
+  if(a) a.innerHTML = gaChip("affinity","","不动") + gaChip("affinity","big","只用超大核") + gaChip("affinity","all","全核（不绑）");
+  if(r){
+    let h = gaChip("refresh","0","不动");
+    p.rates.forEach(function(k){ h += gaChip("refresh", k, k+"Hz"); });
+    r.innerHTML = h;
+  }
+  document.querySelectorAll("[data-gk]").forEach(function(b){
+    b.onclick = function(){ gaSet(b.dataset.gk, b.dataset.gv); };
+  });
+  const e = $("gaEnable");
+  if(e){
+    const on = p.cfg.enabled === "1";
+    e.textContent = on ? "总开关：开" : "总开关：关";
+    e.style.background = on ? "var(--blue-soft)" : "";
+    e.style.color = on ? "var(--blue)" : "";
+    e.onclick = function(){ gaSet("enabled", on ? "0" : "1"); };
+  }
+  const hb = $("gaHud");
+  if(hb){
+    const on = p.cfg.hud !== "0";
+    hb.textContent = on ? "功能提示列表：开" : "功能提示列表：关";
+    hb.style.background = on ? "var(--blue-soft)" : "";
+    hb.style.color = on ? "var(--blue)" : "";
+    hb.onclick = function(){ gaSet("hud", on ? "0" : "1"); };
+  }
+  const ab = $("gaAccBtn");
+  if(ab){
+    // 菜单开关（conf 里的 menu，缺省=开）和"无障碍服务开没开"是两件事，都要显示出来
+    const menuOn = String(p.cfg.menu === undefined || p.cfg.menu === "" ? "1" : p.cfg.menu) !== "0";
+    const accOn = /KeyWatcher/.test(p._acc || "");
+    ab.textContent = "音量键菜单：" + (menuOn ? "开" : "关")
+      + (menuOn ? (accOn ? "（无障碍 ✓）" : "（无障碍没开！点一下）") : "（点一下开）");
+    ab.style.background = menuOn ? "var(--blue-soft)" : "";
+    ab.style.color = menuOn ? "var(--blue)" : "";
+    ab.onclick = async function(){
+      if(menuOn && accOn) { await gaSet("menu", "0"); toast("菜单已关 —— 再按音量键不呼出"); }
+      else { await gaSet("menu", "1"); await gaAccOn(); }
+    };
+  }
+  const ah = $("gaAppHint");
+  if(ah) ah.textContent = p.app ? ("目标：" + (p.label[p.app] || p.app) + "（uid " + (p.uid || "?") + "）") : "还没有选目标应用。";
+  const pk = $("gaPick"); if(pk) pk.onclick = gaPickApp;
+  const cl = $("gaClear"); if(cl) cl.onclick = function(){
+    gaRun("set app ''; sh $B set uid ''", 20000).then(function(){ p.app=""; p.uid=""; gaLoad(); toast("已清除目标"); });
+  };
+  const st = $("gaStart"); if(st) st.onclick = gaStartSvc;
+  const hr = $("gaHudReset"); if(hr) hr.onclick = function(){
+    sh("am startservice -n " + GA_PKG + "/.PerfService 2>&1", 15000);
+    sh("rm -f /data/data/" + GA_PKG + "/shared_prefs/perfhud.xml 2>/dev/null", 12000);
+    toast("已重置提示列表位置（要等它下次刷新）");
+  };
+  gaHudItemsPaint();
+  gaTitlePaint();
+  gaWlPaint();
+  const sh2 = $("gaHint");
+  if(sh2) sh2.textContent = p.cfg.enabled === "1" ? ("已开启" + (p.cfg.fg === "1" ? " · 目标在前台" : " · 目标不在前台")) : "未开启";
+  const s2 = $("gaStat");
+  if(s2) s2.textContent = "总开关 " + (p.cfg.enabled === "1" ? "开" : "关")
+    + " · 目标 " + (p.cfg.app || "未选")
+    + " · 前台 " + (p.cfg.fg === "1" ? "在" : "不在")
+    + " · 已应用 " + (p.cfg.applied === "1" ? "是" : "否")
+    + " · 服务 " + ((p.cfg.uid || p.cfg.app) ? "（App 那边每 2 秒看一眼）" : "");
+}
+async function gaSet(key, val){
+  busy(true, "写入中");
+  let out = "";
+  try{
+    const r = await sh(gaBin() + 'sh "$B" set ' + key + " " + shq(val) + " 2>&1", 25000);
+    out = String(r.stdout || "").trim();
+  }catch(e){ out = "ERR " + ((e && e.message) || e); }
+  busy(false);
+  gaRaw(out);
+  if(out.indexOf("@@NOBIN") >= 0) toast("失败：找不到 bin/perfmode.sh（模块没装全？）");
+  else if(out.indexOf("ERR") === 0) toast("写失败：" + out.slice(0, 70));
+  else toast("已写入 " + key + "=" + (val === "" ? "(空)" : val));
+  await gaLoad();
+}
+async function gaStartSvc(){
+  busy(true, "启动服务");
+  try{
+    const r = await sh("am start-foreground-service -n " + GA_PKG + "/.PerfService 2>&1", 20000);
+    const o = String(r.stdout || "");
+    toast(/Error|Exception/i.test(o) ? ("启动失败：" + o.slice(0,70)) : "已启动（通知栏会出现「游戏加速运行中」）");
+  }catch(e){ toast("出错：" + ((e && e.message) || e)); }
+  finally{ busy(false); }
+}
+async function gaAccOn(){
+  busy(true, "开启音量键监听…");
+  try{
+    await sh('S=' + shq(GA_ACC) + '; c=$(settings get secure enabled_accessibility_services 2>/dev/null); ' +
+      '[ "$c" = "null" ] && c=""; case ":$c:" in *":$S:"*) ;; *) if [ -n "$c" ]; then c="$c:$S"; else c="$S"; fi ;; esac; ' +
+      'settings put secure enabled_accessibility_services "$c"; settings put secure accessibility_enabled 1; echo ok', 25000);
+    await gaSet("menu", "1");
+    toast("已开 —— 系统可能要几秒才把它绑起来");
+  }finally{ busy(false); }
+  setTimeout(gaAccCheck, 2000);
+}
+async function gaAccOff(){
+  busy(true, "关闭…");
+  try{
+    await sh('S=' + shq(GA_ACC) + '; c=$(settings get secure enabled_accessibility_services 2>/dev/null); [ "$c" = "null" ] && c=""; ' +
+      'c=$(echo "$c" | tr ":" "\n" | grep -v -F "$S" | tr "\n" ":" | sed "s/:$//"); settings put secure enabled_accessibility_services "$c"; echo ok', 25000);
+    toast("已关（音量键不再呼出菜单）");
+  }finally{ busy(false); }
+  setTimeout(gaAccCheck, 1500);
+}
+async function gaAccCheck(){
+  const p = gaState();
+  try{
+    const r = await sh("settings get secure enabled_accessibility_services 2>/dev/null", 12000);
+    p._acc = String(r.stdout || "");
+  }catch(e){ p._acc = ""; }
+  gaPaint();
+}
+async function gaPickApp(){
+  if(thermalState().demo){ toast("演示模式：未执行"); return; }
+  let list = [];
+  try{
+    const r = await sh('pm list packages -3 2>/dev/null | sed "s/^package://"; echo "@@S"; pm list packages -s 2>/dev/null | sed "s/^package://"', 45000);
+    const s = String(r.stdout || ""), i = s.indexOf("@@S");
+    const cut = t => t.split("\n").map(x => x.trim()).filter(Boolean).sort();
+    list = cut(i >= 0 ? s.slice(0, i) : s).concat(cut(i >= 0 ? s.slice(i + 1) : ""));
+  }catch(e){ toast("读不到应用列表"); return; }
+  const seen = {}; list = list.filter(x => (seen[x] ? false : (seen[x] = 1)));
+  if(!list.length){ toast("一个应用都没读到"); return; }
+  let labels = {};
+  try{ const pi = packagesInfo(list.slice(0, 400)); if(pi) pi.forEach(x => { labels[x.packageName] = x.appLabel || ""; }); }catch(e){}
+  const rows = list.map(pk => '<button class="pk-item" data-pkg="' + esc(pk) + '">' +
+      '<div class="n"><strong>' + esc(labels[pk] || pk) + '</strong><span>' + esc(pk) + '</span></div>' +
+      '<div class="ck">✓</div></button>').join("");
+  openModal("挑一个要加速的应用", list.length + " 个已安装应用",
+    '<div class="modal-search"><input class="modern-input" id="gaSearch" placeholder="搜应用名或包名…" autocomplete="off" spellcheck="false"></div>' +
+    '<div class="row-list" id="gaList">' + rows + '</div>',
+    '<button data-act="c">取消</button>');
+  const se = $("gaSearch");
+  se.addEventListener("input", function(){
+    const q = se.value.trim().toLowerCase();
+    document.querySelectorAll("#gaList .pk-item").forEach(function(el){
+      el.style.display = (!q || el.textContent.toLowerCase().indexOf(q) >= 0) ? "" : "none";
+    });
+  });
+  $("gaList").addEventListener("click", async function(ev){
+    const b = ev.target.closest(".pk-item");
+    if(!b) return;
+    const pk = b.getAttribute("data-pkg");
+    closeModal();
+    const p = gaState();
+    p.label[pk] = labels[pk] || "";
+    busy(true, "绑定中…");
+    let out = "";
+    try{
+      const r = await sh(gaBin() + 'sh "$B" set app ' + shq(pk) + ' 2>&1; sh "$B" set uid "" 2>&1', 30000);
+      out = String(r.stdout || "").trim();
+    }catch(e){ out = "ERR " + ((e && e.message) || e); }
+    busy(false);
+    gaRaw(out);
+    p.app = pk;
+    await gaLoad();
+    if(out.indexOf("@@NOBIN") >= 0) toast("失败：找不到 bin/perfmode.sh（模块没装全？）");
+    else toast("已绑定：" + (labels[pk] || pk) + "（uid " + (p.uid || "?") + "）—— 记得开总开关");
+  });
+}
+const GA_ITEMS = [["time","时间"],["cpu","CPU 频率"],["fps","FPS"],["power","功耗"],["temp","温度"]];
+function gaItemsOn(){
+  const p = gaState();
+  const raw = (p.cfg.hud_items || "").trim();
+  if(!raw) return GA_ITEMS.map(x => x[0]);            // 没配过 = 全显示
+  return raw.split(",").map(x => x.trim()).filter(Boolean);
+}
+function gaHudItemsPaint(){
+  const host = $("gaHudItems"); if(!host) return;
+  const on = gaItemsOn();
+  host.innerHTML = GA_ITEMS.map(function(it){
+    const k = it[0], hot = on.indexOf(k) >= 0;
+    return '<button class="chip-btn" data-hi="' + k + '"' + (hot ? ' style="background:var(--blue-soft);color:var(--blue)"' : '') + '>' + it[1] + (hot ? " ✓" : "") + '</button>';
+  }).join("");
+  host.querySelectorAll("[data-hi]").forEach(function(b){
+    b.onclick = function(){
+      const k = b.dataset.hi;
+      let list = gaItemsOn();
+      if(list.indexOf(k) >= 0) list = list.filter(x => x !== k); else list.push(k);
+      list.sort(function(a,b2){ return GA_ITEMS.findIndex(x=>x[0]===a) - GA_ITEMS.findIndex(x=>x[0]===b2); });
+      gaSet("hud_items", list.join(","));
+    };
+  });
+}
+function gaTitlePaint(){
+  const p = gaState(), el = $("gaTitle");
+  if(el){
+    el.placeholder = "KSU工具箱-游戏加速：%s";
+    if(document.activeElement !== el) el.value = p.cfg.hud_title || "";
+  }
+  const b = $("gaTitleSave");
+  if(b) b.onclick = function(){ gaSet("hud_title", ($("gaTitle").value || "").trim()); toast("标题已保存"); };
+}
+function gaWlList(){ return (gaState().cfg.whitelist || "").split(",").map(x => x.trim()).filter(Boolean); }
+function gaWlPaint(){
+  const b = $("gaWlPick");
+  if(b){ b.textContent = "选择应用（已选 " + gaWlList().length + " 个）"; b.onclick = gaWlPick; }
+  const c = $("gaWlClear");
+  if(c) c.onclick = function(){ gaSet("whitelist", ""); toast("白名单已清空（目标应用仍然自动保护）"); };
+}
+async function gaWlPick(){
+  if(thermalState().demo){ toast("演示模式：未执行"); return; }
+  let list = [];
+  try{
+    const r = await sh('pm list packages -3 2>/dev/null | sed "s/^package://"', 40000);
+    list = String(r.stdout || "").split("\n").map(x => x.trim()).filter(Boolean).sort();
+  }catch(e){ toast("读不到应用列表"); return; }
+  if(!list.length){ toast("没有第三方应用"); return; }
+  let labels = {};
+  try{ const pi = packagesInfo(list.slice(0,400)); if(pi) pi.forEach(x => { labels[x.packageName] = x.appLabel || ""; }); }catch(e){}
+  const cur = gaWlList();
+  const rows = list.map(pk => '<button class="pk-item" data-wlp="' + esc(pk) + '">' +
+      '<div class="n"><strong>' + esc(labels[pk] || pk) + '</strong><span>' + esc(pk) + '</span></div>' +
+      '<div class="ck">' + (cur.indexOf(pk) >= 0 ? "✓" : "") + '</div></button>').join("");
+  openModal("清后台白名单", "不选 = 谁都可以被清",
+    '<div class="modal-search"><input class="modern-input" id="gaWlSearch" placeholder="搜应用名或包名…" autocomplete="off" spellcheck="false"></div>' +
+    '<div class="row-list" id="gaWlList">' + rows + '</div>',
+    '<button data-act="ok">保存</button><button data-act="c">取消</button>');
+  const sel = {};
+  cur.forEach(function(k){ sel[k] = 1; });
+  $("gaWlList").addEventListener("click", function(ev){
+    const b = ev.target.closest(".pk-item");
+    if(!b) return;
+    const pk = b.getAttribute("data-wlp");
+    if(sel[pk]) delete sel[pk]; else sel[pk] = 1;
+    b.querySelector(".ck").textContent = sel[pk] ? "✓" : "";
+  });
+  const se = $("gaWlSearch");
+  se.addEventListener("input", function(){
+    const q = se.value.trim().toLowerCase();
+    document.querySelectorAll("#gaWlList .pk-item").forEach(function(el){
+      el.style.display = (!q || el.textContent.toLowerCase().indexOf(q) >= 0) ? "" : "none";
+    });
+  });
+  $("modalFooter").querySelector('[data-act="c"]').onclick = closeModal;
+  $("modalFooter").querySelector('[data-act="ok"]').onclick = async function(){
+    const arr = Object.keys(sel).sort();
+    closeModal();
+    await gaSet("whitelist", arr.join(","));
+    toast("白名单已保存（" + arr.length + " 个）");
+  };
+}
+function gaInit(){
+  gaPaint();
+  gaLoad();
+  gaAccCheck();
+}
+
+/* ============================================================
  *  11.7b 刷新率锁定
  *  后端 bin/refresh.sh：扫描档位 / 锁定+保活 / 恢复原值
  * ============================================================ */
@@ -5343,7 +5725,7 @@ function switchTab(tab){
   const dockTab = (tab === "diag" || tab === "about") ? "settings" : tab;
   document.querySelectorAll(".dock-item").forEach(b => b.classList.toggle("active", b.dataset.tab === dockTab));
   $("content").innerHTML = TABS[tab]();
-  if(tab === "perf"){ monInitPerf(); rrInit(); }
+  if(tab === "perf"){ monInitPerf(); rrInit(); gaInit(); }
   if(tab === "power" || tab === "term"){ setTimeout(() => { if($("chgStatus")) chgStatus(); }, 400); }
   if(tab === "term"){ initTerm(); guardInit(); stopClock(); clearInterval(timer); return; }
   if(tab === "settings" || tab === "about"){

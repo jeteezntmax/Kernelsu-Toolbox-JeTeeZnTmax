@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 长按音量上键呼出游戏加速菜单：只要按键事件，不读界面内容 -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRequestFilterKeyEvents"
+    android:notificationTimeout="0"
+    android:canRequestFilterKeyEvents="true"
+    android:description="@string/key_desc"
+    android:summary="@string/key_sum" />

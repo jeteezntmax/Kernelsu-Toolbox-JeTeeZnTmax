@@ -41,6 +41,12 @@ sh "$E" early >/dev/null 2>&1
         am start -n $PKG/.MonitorActivity >/dev/null 2>&1
     fi
 
+    # 游戏加速：配置里开着就把它拉起来（不然开机后没人管自动应用）
+    if [ -f /data/adb/ksu_toolbox/perf/profile.conf ]; then
+        pe=$(grep -m1 '^enabled=' /data/adb/ksu_toolbox/perf/profile.conf 2>/dev/null | cut -d= -f2)
+        [ "$pe" = "1" ] && am start-foreground-service -n $PKG/.PerfService >/dev/null 2>&1
+    fi
+
     # 刷新率保活（如果之前锁过刷新率）
     RF="$MODDIR/bin/refresh.sh"
     if [ -f "$RF" ]; then

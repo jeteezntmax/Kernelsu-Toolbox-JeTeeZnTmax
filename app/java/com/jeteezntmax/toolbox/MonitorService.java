@@ -312,16 +312,12 @@ public class MonitorService extends Service {
     }
 
     /** 找模块里的 bin/refresh.sh（装完没重启时在 modules_update 下） */
-    private String findRefreshSh() {
-        String[] cand = {
-                "/data/adb/modules/ksu_toolbox/bin/refresh.sh",
-                "/data/adb/modules_update/ksu_toolbox/bin/refresh.sh",
-                "/data/adb/modules/ksu_toolbox-update/bin/refresh.sh"};
-        for (String c : cand) {
-            try { if (new java.io.File(c).exists()) return c; } catch (Exception ignored) { }
-        }
-        return null;
-    }
+    /** 同上：App stat 不到 /data/adb，找脚本必须交给 root shell */
+    private static final String RFIND =
+            "B=\"\"; for c in /data/adb/modules_update/ksu_toolbox/bin/refresh.sh " +
+            "/data/adb/modules/ksu_toolbox/bin/refresh.sh " +
+            "/data/adb/modules/ksu_toolbox-update/bin/refresh.sh; do " +
+            "[ -f \"$c\" ] && { B=\"$c\"; break; }; done; ";
 
     private void toastMsg(String s) {
         try {
@@ -352,16 +348,17 @@ public class MonitorService extends Service {
             public void run() {
                 String out = "", err = "";
                 try {
-                    String path = findRefreshSh();
                     String cmd = null;
-                    if (path != null) {
-                        cmd = "sh " + path + " " + (hz.isEmpty() ? "restore" : ("lock " + hz));
-                    } else if (!hz.isEmpty()) {
+                    // 交给 root shell 找脚本（App 自己 stat 不到 /data/adb）
+                    if (!hz.isEmpty()) {
+                        cmd = RFIND + "if [ -n \"$B\" ]; then sh \"$B\" lock " + hz + "; else settings put system peak_refresh_rate " + hz +
+                              "; settings put system min_refresh_rate " + hz + "; echo 兜底:没找到refresh.sh,直接写了settings; fi";
+                    } else if (false) {
                         cmd = "settings put system peak_refresh_rate " + hz +
                               "; settings put system min_refresh_rate " + hz +
                               "; echo 兜底:没找到refresh.sh,直接写了settings";
                     } else {
-                        cmd = "settings delete system peak_refresh_rate; settings delete system min_refresh_rate; echo 兜底:没找到refresh.sh,直接删了settings";
+                        cmd = RFIND + "if [ -n \"$B\" ]; then sh \"$B\" restore; else settings delete system peak_refresh_rate; settings delete system min_refresh_rate; fi";
                     }
                     Process p = new ProcessBuilder("su", "-c", cmd).redirectErrorStream(true).start();
                     java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream()));

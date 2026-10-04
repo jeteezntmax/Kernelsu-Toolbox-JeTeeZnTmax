@@ -48,5 +48,24 @@
             android:name=".MonitorService"
             android:exported="true" />
 
+        <!-- 游戏加速：功能提示列表 + 音量键菜单 + 按 uid 自动应用 -->
+        <service
+            android:name=".PerfService"
+            android:exported="true" />
+
+        <!-- 长按音量上键呼出菜单：无障碍的「过滤按键事件」，不拦按键（音量照常） -->
+        <service
+            android:name=".KeyWatcher"
+            android:exported="true"
+            android:label="KSU 工具箱 · 音量键"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/key_watcher" />
+        </service>
+
     </application>
 </manifest>

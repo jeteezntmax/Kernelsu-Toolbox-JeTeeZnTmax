@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="key_desc">游戏加速：长按音量上键呼出菜单</string>
+    <string name="key_sum">只接管"长按音量上键"这一个手势（按住 0.6 秒），短按照旧调音量。不读屏幕内容、不接收其它输入。</string>
+</resources>
