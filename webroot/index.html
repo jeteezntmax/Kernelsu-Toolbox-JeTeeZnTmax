@@ -3356,6 +3356,7 @@ async function loadThermal(){
 async function loadThermalDyn(){
   const t = thermalState();
   if(state.tab !== "thermal") return;
+  try{ thInit(); }catch(e){}
   if(t.demo){ updateThermal(demoThermalDyn()); return; }
   const r = await sh(THERM_DYN.join("; "), 15000, "thermal_dyn");
   updateThermal(r.stderr === "__NOBRIDGE__" ? demoThermalDyn() : parseKV(r.stdout));
@@ -3386,16 +3387,34 @@ function demoThermalDyn(){
 
 /* ---------- 界面 ---------- */
 function thermalHTML(){
-  // 【Extreme GT 已从模块移除】
-  // 原来的温度页是 EG 的控制面板（XML 覆盖 / emul_temp / GPU 满档 / 触摸 renice …），
-  // 那套连同后端 bin/eg.sh、eg-setup.sh 一起删掉了 —— EG 相关的 bug 太多，作者决定不折腾它。
-  // 这页现在只保留【只读的热区温度显示】（下面的 #thBody 由原有的渲染逻辑填充）。
   return `<div class="view">
     <div class="section-head"><h2>温度</h2>${backBtn()}</div>
     <section class="card row-list" id="thBody">
       <div class="row"><span>状态</span><strong>读取中…</strong></div>
     </section>
-    <p class="field-hint">各热区当前温度（只读）。去温控那套（Extreme GT）已从模块移除。</p>
+
+    <div class="section-head" style="margin-top:2px"><h2>温度伪装</h2><span class="hint" id="thHint">therm.sh</span></div>
+    <section class="card file-card">
+      <div class="tagrow">
+        <button class="chip-btn" id="thCapsBtn">探测能力</button>
+        <button class="chip-btn" id="thRestore" style="color:var(--red)">全部还原</button>
+        <button class="chip-btn" id="thLogBtn">日志</button>
+      </div>
+      <p class="field-hint" id="thStat">读取中…</p>
+      <label style="margin-top:8px">CPU / GPU 热区伪装成</label>
+      <div class="tagrow" id="thTemp"></div>
+      <label style="margin-top:8px">电池温度伪装成</label>
+      <div class="tagrow" id="thBatt"></div>
+      <label style="margin-top:8px">温度墙锁到</label>
+      <div class="tagrow" id="thWall"></div>
+      <label style="margin-top:8px">电池循环次数改成</label>
+      <div class="tagrow">
+        <input class="modern-input" id="thCycle" placeholder="例如 10" style="flex:1" autocomplete="off">
+        <button class="chip-btn" id="thCycleSave">写入</button>
+      </div>
+      <p class="field-hint" id="thCaps" style="white-space:pre-wrap;opacity:.85">点「探测能力」看看这台机器哪些节点能写 —— 写不了的会明确报不支持，不会瞎写。</p>
+      <p class="field-hint" id="thRaw" style="opacity:.75"></p>
+    </section>
   </div>`;
 }
 function zoneRowsHTML(ztypes){
@@ -4822,6 +4841,109 @@ function guardInit(){
     };
   }
   if(!G.running) setGuardStat("");
+}
+
+/* ============================================================
+ *  11.7c 温度伪装（后端 bin/therm.sh）
+ *  节点清单参考了社区同类模块（AaTempSpoof）的做法，实现是自己写的：
+ *  探测式 + 写后回读 + 原值记录 + 还原
+ * ============================================================ */
+function thermBin(){
+  return 'B=""; for c in /data/adb/modules_update/ksu_toolbox/bin/therm.sh /data/adb/modules/ksu_toolbox/bin/therm.sh /data/adb/modules/ksu_toolbox-update/bin/therm.sh; do [ -f "$c" ] && { B="$c"; break; }; done; [ -z "$B" ] && { echo "@@NOBIN"; exit 9; }; ';
+}
+function thState(){
+  if(!state.th) state.th = { caps:"", status:{}, inited:false };
+  return state.th;
+}
+async function thRun(args, ms){
+  if(thermalState().demo){ toast("演示模式：未执行"); return "@@DEMO"; }
+  try{
+    const r = await sh(thermBin() + 'sh "$B" ' + args + " 2>&1", ms || 30000);
+    return String(r.stdout || "");
+  }catch(e){ return "ERR " + ((e && e.message) || e); }
+}
+function thRaw(t){ const e = $("thRaw"); if(e) e.textContent = t ? String(t).replace(/\s+/g," ").slice(0,220) : ""; }
+async function thCaps(){
+  busy(true, "探测中…");
+  let out = "";
+  try{ out = await thRun("caps", 40000); }catch(e){ out = "ERR " + e; }
+  busy(false);
+  thState().caps = out;
+  const el = $("thCaps"); if(el) el.textContent = out.trim();
+  thRaw(out);
+  toast(/无可用节点/.test(out) ? "这台机器没有可用节点（见下方详情）" : "探测完成，结果在下面");
+}
+async function thStatus(){
+  let out = "";
+  try{ out = await thRun("status", 25000); }catch(e){ }
+  const st = {};
+  out.split("\n").forEach(function(L){ const i = L.indexOf("="); if(i > 0) st[L.slice(0,i).trim()] = L.slice(i+1).trim(); });
+  thState().status = st;
+  thPaint();
+}
+function thChip(key, val, label, cur){
+  return '<button class="chip-btn" data-th="' + key + '" data-thv="' + esc(val) + '"' +
+    (String(cur) === String(val) ? ' style="background:var(--blue-soft);color:var(--blue)"' : "") + '>' + esc(label) + '</button>';
+}
+function thPaint(){
+  const st = thState().status;
+  const put = function(id, arr){ const e = $(id); if(e) e.innerHTML = arr.join(""); };
+  put("thTemp", [["38000","38℃"],["40000","40℃"],["42000","42℃"],["43000","43℃"],["45000","45℃"],["47000","47℃"]]
+        .map(function(x){ return thChip("temp", x[0], x[1], st.cpu || ""); }));
+  put("thBatt", [["28000","28℃"],["30000","30℃"],["32000","32℃"],["35000","35℃"]]
+        .map(function(x){ return thChip("batt", x[0], x[1], st.batt || ""); }));
+  put("thWall", [["44000","44℃"],["46000","46℃"],["48000","48℃"],["50000","50℃"]]
+        .map(function(x){ return thChip("wall", x[0], x[1], st.wall || ""); }));
+  const cyc = $("thCycle"); if(cyc && document.activeElement !== cyc) cyc.value = st.cycle || "";
+  const s = $("thStat");
+  if(s) s.textContent = "总开关 " + (st.enabled === "1" ? "开" : "关")
+    + " · 可写热区 " + (st.emul_zones || "?")
+    + " · 电池节点 " + (st.batt_path || "—")
+    + " · 循环节点 " + (st.cycle_path || "—")
+    + " · 原值备份 " + (st.backup === "1" ? "有" : "无");
+  const cb = $("thCapsBtn"); if(cb) cb.onclick = thCaps;
+  const rs = $("thRestore"); if(rs) rs.onclick = async function(){
+    busy(true, "还原中…");
+    const out = await thRun("restore", 35000);
+    busy(false); thRaw(out);
+    toast(out.trim().split("\n").pop().slice(0,60)); thStatus();
+  };
+  const lg = $("thLogBtn"); if(lg) lg.onclick = async function(){
+    const out = await thRun("log 60", 25000);
+    openModal("温度伪装 · 日志", "/data/adb/ksu_toolbox/therm.log",
+      '<div class="logbox" style="max-height:60vh;white-space:pre-wrap">' + esc(out || "(空)") + '</div>',
+      '<button data-act="ok">关闭</button>');
+    $("modalFooter").querySelector('[data-act="ok"]').onclick = closeModal;
+  };
+  const cs = $("thCycleSave"); if(cs) cs.onclick = async function(){
+    const v = ($("thCycle").value || "").trim();
+    if(!/^[0-9]{1,5}$/.test(v)){ toast("填个 0-99999 的数字"); return; }
+    busy(true, "写入…");
+    const out = await thRun("cycle " + v, 30000);
+    busy(false); thRaw(out);
+    toast(out.indexOf("unsupported") >= 0 ? "这台机器不支持改循环次数" : ("已写入 " + v));
+    thStatus();
+  };
+}
+document.addEventListener("click", async function(ev){
+  const b = ev.target.closest("[data-th]");
+  if(!b) return;
+  const k = b.getAttribute("data-th"), v = b.getAttribute("data-thv");
+  const cmd = (k === "temp" ? "temp on " : k === "batt" ? "batt on " : k === "wall" ? "wall on " : "") + v;
+  if(!/^(temp|batt|wall) on /.test(cmd)) return;
+  busy(true, "写入中…");
+  const out = await thRun(cmd, 35000);
+  busy(false);
+  thRaw(out);
+  toast(out.indexOf("@@NOBIN") >= 0 ? "找不到 bin/therm.sh" : (out.indexOf("unsupported") >= 0 ? "这台机器不支持这个节点" : "已写入"));
+  thStatus();
+});
+function thInit(){
+  const t = thState();
+  if(t.inited) return;
+  t.inited = true;
+  thPaint();
+  thStatus();
 }
 
 /* ============================================================
