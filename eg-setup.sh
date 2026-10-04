@@ -17,7 +17,10 @@
 
 ui_print "- Extreme GT：扫描设备温控配置"
 
+mkdir -p /data/adb/ksu_toolbox 2>/dev/null
+echo "persist.sys.oplus.wifi.sla.game_high_temperature=$(getprop persist.sys.oplus.wifi.sla.game_high_temperature)" >> /data/adb/ksu_toolbox/eg-orig.props 2>/dev/null
 setprop persist.sys.oplus.wifi.sla.game_high_temperature 50
+echo "persist.sys.environment.temp=$(getprop persist.sys.environment.temp)" >> /data/adb/ksu_toolbox/eg-orig.props 2>/dev/null
 setprop persist.sys.environment.temp 25
 
 mkdir -p "$MODPATH/system/vendor/etc"

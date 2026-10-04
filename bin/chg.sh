@@ -25,6 +25,31 @@ pick() {   # 第一个可写的
 }
 val() { cat "$1" 2>/dev/null | head -1 | tr -d '\n'; }
 
+BASE=${CHG_BASE:-/data/adb/ksu_toolbox}
+ORIG=$BASE/chg-orig
+
+# 只接受数字（第三方的"统一参数校验"：不合法就直接拒绝，别把未知值当关闭）
+is_num(){ case "$1" in ''|*[!0-9]*) return 1;; esac; return 0; }
+num_in(){ is_num "$1" && [ "$1" -ge "$2" ] 2>/dev/null && [ "$1" -le "$3" ] 2>/dev/null; }
+# 首次动某个节点前，把原值记下来（卸载时还原用）
+orig_save(){
+    mkdir -p "$BASE" 2>/dev/null
+    [ -f "$ORIG" ] && grep -qF "$1 " "$ORIG" 2>/dev/null && return 0
+    echo "$1 $(val "$1")" >> "$ORIG" 2>/dev/null
+}
+# 写 + 回读确认：写成功 ≠ 生效（会被驱动忽略、被别的组件改回）
+finish_write(){
+    is_num "$2" || { echo "bad-value"; return 1; }
+    orig_save "$1"
+    echo "$2" > "$1" 2>/dev/null || { echo "write-fail"; return 1; }
+    sleep 0.2
+    now=$(val "$1")
+    if [ "$now" = "$2" ]; then echo "ok"; return 0; fi
+    echo "readback-mismatch(now=$now)"
+    return 0
+}
+
+
 # ── 停充开关的候选 ──
 SUSPEND_PATHS="$O/battery/mmi_charging_enable
 /sys/class/power_supply/battery/input_suspend
@@ -40,6 +65,16 @@ SUSPEND_INVERTED="/sys/class/power_supply/battery/input_suspend
 
 case "$1" in
 
+restore)
+    # 把记下的原值写回去（卸载/停用时用）
+    [ -f "$ORIG" ] || { echo "no-orig"; exit 0; }
+    n=0
+    while read -r path v; do
+        [ -n "$path" ] && [ -w "$path" ] && echo "$v" > "$path" 2>/dev/null && n=$((n+1))
+    done < "$ORIG"
+    rm -f "$ORIG"
+    echo "restored=$n"
+    ;;
 status)
     echo "cap=$(val $B/capacity)"
     echo "volt=$(val $B/voltage_now)"
@@ -77,7 +112,7 @@ limit)
         NF>=5 { if (v+0 == 0) { $3=0 } else { $3=1; $4=v } }
         { print }')
     if [ -z "$new" ]; then echo "parse-fail"; exit 3; fi
-    echo "$new" > "$P" 2>/dev/null || { echo "write-fail"; exit 4; }
+    finish_write "$P" "$new" || exit 4
     sleep 0.3
     echo "ok $(val $P)"
     ;;
@@ -105,7 +140,7 @@ slow)
         BEGIN{ OFS="," }
         { $1=(v+0==1)?1:0 }
         { print }')
-    echo "$new" > "$P" 2>/dev/null || { echo "write-fail"; exit 4; }
+    finish_write "$P" "$new" || exit 4
     sleep 0.3
     echo "ok $(val $P)"
     ;;
@@ -115,7 +150,7 @@ power)
     P=$(pick $O/common/adapter_power) || { echo "unsupported"; exit 1; }
     V="$2"
     case "$V" in ''|*[!0-9]*) echo "bad-arg"; exit 2 ;; esac
-    echo "$V" > "$P" 2>/dev/null || { echo "write-fail"; exit 4; }
+    finish_write "$P" "$V" || exit 4
     sleep 0.3
     echo "ok $(val $P)"
     ;;
@@ -128,7 +163,7 @@ icl)
     MX=$(val $U/current_max)
     case "$MX" in ''|*[!0-9]*) MX=0 ;; esac
     if [ "$MX" -gt 0 ] 2>/dev/null && [ "$V" -gt "$MX" ]; then V="$MX"; fi
-    echo "$V" > "$P" 2>/dev/null || { echo "write-fail"; exit 4; }
+    finish_write "$P" "$V" || exit 4
     sleep 0.3
     echo "ok $(val $P)"
     ;;

@@ -43,16 +43,44 @@ gen_token() {
     cat "$TOKEN_FILE"
 }
 
-# busybox httpd 会守护化，pidof/pgrep 不一定抓得到 —— 直接扫 /proc
+# busybox httpd 会守护化，pidof/pgrep 不一定抓得到 —— 直接扫 /proc。
+# 注意（第三方审查提的）：不能只按"命令行里有 httpd -p 127.0.0.1"就认，
+# 那会把【别人】的 busybox httpd 也当成自己的杀掉 ✗。
+# 所以：① 优先用 PID 文件（并核对 exe 与启动时间，防 PID 复用）
+#       ② 退回扫 /proc 时，必须同时匹配【我们自己的 serve 目录】
+serve_dir() {
+    d=""
+    [ -f "$CONF" ] && d=$(grep -m1 '^dir=' "$CONF" 2>/dev/null | cut -d= -f2)
+    [ -n "$d" ] && { echo "$d"; return; }
+    echo "/data/adb/ksu_toolbox/webroot"
+}
+
 find_httpd() {
+    d0=$(serve_dir 2>/dev/null)
     for d in /proc/[0-9]*; do
         [ -r "$d/cmdline" ] || continue
-        if tr '\0' ' ' < "$d/cmdline" 2>/dev/null | grep -q 'httpd -p 127.0.0.1'; then
-            echo "${d#/proc/}"
-            return 0
-        fi
+        cl=$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null)
+        case "$cl" in
+            *httpd*"127.0.0.1"*)
+                # 命令里必须带我们的目录才认（否则可能是别人的服务）
+                [ -n "$d0" ] && case "$cl" in *"$d0"*) echo "${d#/proc/}"; return 0 ;; esac
+                ;;
+        esac
     done
     return 1
+}
+
+# 我们自己的 busybox 路径 + 进程启动时刻（/proc/pid/stat 第 22 栏）
+proc_ident() {   # proc_ident <pid>  →  "<exe> <starttime>"
+    [ -n "$1" ] || return 1
+    exe=$(readlink "/proc/$1/exe" 2>/dev/null)
+    st=$(awk '{print $22}' "/proc/$1/stat" 2>/dev/null)
+    [ -n "$exe" ] && echo "$exe $st"
+}
+pid_ours() {     # pid_ours <pid> <exe> <starttime>  → 是不是我们记下的那个进程
+    [ -n "$1" ] && [ -d "/proc/$1" ] || return 1
+    cur=$(proc_ident "$1") || return 1
+    [ "$cur" = "$2 $3" ]
 }
 
 # 别用 wget 探活 —— 那会把 180KB 的首页整个拉一遍，
@@ -73,18 +101,24 @@ is_running() {
 }
 
 stop_it() {
+    # 只动"确认是自己"的进程：PID 文件里的 exe + 启动时间要对得上
+    if [ -s "$PIDFILE" ]; then
+        set -- $(cat "$PIDFILE" 2>/dev/null)
+        if pid_ours "$1" "$2" "$3"; then
+            kill "$1" 2>/dev/null; sleep 1
+            pid_ours "$1" "$2" "$3" && kill -9 "$1" 2>/dev/null
+        fi
+        rm -f "$PIDFILE"
+    fi
+    # 兜底：扫 /proc 时也必须带我们自己的目录（见 find_httpd）
     for p in $(find_httpd); do
         kill "$p" 2>/dev/null
     done
-    if [ -s "$PIDFILE" ]; then
-        p=$(cat "$PIDFILE" | tr -d ' \r\n')
-        case "$p" in ''|*[!0-9]*) ;; *) kill "$p" 2>/dev/null ;; esac
-    fi
     sleep 1
     for p in $(find_httpd); do
         kill -9 "$p" 2>/dev/null
     done
-    rm -f "$PIDFILE"
+    echo "stopped"
 }
 
 publish() {
