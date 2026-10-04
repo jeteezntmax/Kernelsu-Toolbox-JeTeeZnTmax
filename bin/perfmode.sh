@@ -245,7 +245,7 @@ apply)
     fi
     echo "state=on" >> "$APPLIED"
     logline "apply uid=${uid:-?} freq=${freq:-0} gov=${gov:-未设} aff=${aff:-未设} rr=${rr:-0}"
-    echo "已应用（uid=${uid:-?}）"
+    echo "uid=${uids:-}"; echo "已应用（uid=${uids:-未解析}）"
     ;;
 restore)
     do_restore

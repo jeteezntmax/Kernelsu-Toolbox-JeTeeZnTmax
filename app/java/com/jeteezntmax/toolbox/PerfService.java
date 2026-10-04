@@ -66,7 +66,7 @@ public class PerfService extends Service {
         return "";
     }
 
-    private String app = "", apps = "", fapp = "", uid = "", enabled = "0", menuOn = "1", hudOn = "1";
+    private String app = "", apps = "", fapp = "", uid = "", uids = "", enabled = "0", menuOn = "1", hudOn = "1";
     private String hudItems = "", cpuKhz = "", cpuMax = "", battUa = "", battUv = "", tempC = "";
     private String hudTitle = "";      // 最上面那行自定义标题（%s = 启用/停用）
     private float fontSp = 0f;
@@ -311,6 +311,7 @@ public class PerfService extends Service {
             String k = L.substring(0, i).trim(), v = L.substring(i + 1).trim();
             if (k.equals("app")) app = v;
             else if (k.equals("apps")) apps = v;
+            else if (k.equals("uids")) uids = v;
             else if (k.equals("fapp")) fapp = v;
             else if (k.equals("uid")) uid = v;
             else if (k.equals("enabled")) enabled = v;
@@ -383,13 +384,32 @@ public class PerfService extends Service {
         }
     }
 
-    /** 跑一次动作并给反馈 + 记日志（失败不能是静默的） */
+    /**
+     * 跑一次动作并给反馈 + 记日志（失败不能是静默的）。
+     * 文案自己拼，别拿脚本的人话去接（以前接出过"应用已应用，uid=？"这种 ✗）：
+     *   应用 → 调度已应用_UID=<uid>
+     *   恢复 → 调度已恢复
+     */
     private void act(final String what) {
-        final String out = shPerf(what.equals("应用") ? "apply" : "restore");
-        final String msg = what + (out.indexOf("@@NOBIN") >= 0 ? "失败：找不到 bin/perfmode.sh（模块没装全？）"
-                : (out.trim().isEmpty() ? "完成" : out.trim().replace('\n', ' ')));
+        final boolean isApply = what.equals("应用");
+        final String out = shPerf(isApply ? "apply" : "restore");
+        String msg;
+        if (out.indexOf("@@NOBIN") >= 0) {
+            msg = (isApply ? "调度应用失败" : "调度恢复失败") + "：找不到 bin/perfmode.sh";
+        } else if (isApply) {
+            String u = "";
+            for (String L : out.split("\n")) {                 // 脚本会回一行 uid=<列表>
+                L = L.trim();
+                if (L.startsWith("uid=")) { u = L.substring(4).trim(); break; }
+            }
+            if (u.isEmpty()) u = (uid != null && !uid.isEmpty()) ? uid : uids;
+            if (u.isEmpty()) u = (app != null && !app.isEmpty()) ? app : "?";
+            msg = "调度已应用_UID=" + u;
+        } else {
+            msg = "调度已恢复";
+        }
         logPerf(what, msg);
-        ui.post(new Runnable() { public void run() { toastMsg(msg.length() > 80 ? msg.substring(0, 80) : msg); } });
+        ui.post(new Runnable() { public void run() { toastMsg(msg.length() > 90 ? msg.substring(0, 90) : msg); } });
     }
 
     /** 动作记到 refresh/keep.log（WebUI 的「保活日志」看得到） */
