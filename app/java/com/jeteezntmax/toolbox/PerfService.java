@@ -73,7 +73,8 @@ public class PerfService extends Service {
     private boolean hudMuted = false;   // 双击音量键临时关掉提示悬浮窗
     private String hudErr = null;       // 加不上窗口的原因（排错用，会显示在提示里）
     private String hudQuad = "", hudDesc = "";
-    private HudGripView grip;           // 拖动把手（文字那层是触摸穿透的，拖不动）
+    private boolean alignRightNow = true;
+    private HudTitleView grip;           // 拖动把手（文字那层是触摸穿透的，拖不动）
     private WindowManager.LayoutParams gripLp;         // WebUI 里选的字号（0 = 还没读到，用视图默认）
     private int drift = 0;
     private double fps2 = -1;
@@ -299,6 +300,7 @@ public class PerfService extends Service {
         final float fsp = fontSp;
         if (fsp >= 8f) ui.post(new Runnable() { public void run() {
             if (hud != null) hud.setFontSp(fsp);
+            if (grip != null) grip.setFontSp(fsp);
             if (menu != null) menu.setFontSp(fsp);
         } });
         final ArrayList<String> ls = new ArrayList<String>();
@@ -427,20 +429,6 @@ public class PerfService extends Service {
                 PixelFormat.TRANSLUCENT);
         hudLp.gravity = Gravity.TOP | Gravity.END;      // 默认贴右上角
         applyHudPos();
-        hud.setDragHost(new FeatureHudView.DragHost() {
-            private long lastSave = 0;
-            public void onDrag(int dx, int dy) {
-                // 注意：这块窗是 Gravity.END（x 从右边缘量起），所以往右拖 = x 变小。
-                // 原来写 += 就是镜像的元凶（往左拖它往右跑）。
-                hudLp.x -= dx;
-                hudLp.y += dy;
-                if (hudLp.y < 0) hudLp.y = 0;
-                if (hudLp.x < 0) hudLp.x = 0;                 // 别跑出右边缘
-                try { wm.updateViewLayout(hud, hudLp); } catch (Exception ignored) { }
-                long now = System.currentTimeMillis();
-                if (now - lastSave > 600) { lastSave = now; saveHudPos(); }
-            }
-        });
         try {
             wm.addView(hud, hudLp);
             hudErr = null;
@@ -561,7 +549,7 @@ public class PerfService extends Service {
 
     private void ensureGrip() {
         if (grip != null || wm == null || hudLp == null) return;
-        grip = new HudGripView(this);
+        grip = new HudTitleView(this);
         int type = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
@@ -573,7 +561,7 @@ public class PerfService extends Service {
                 PixelFormat.TRANSLUCENT);
         gripLp.gravity = Gravity.TOP | Gravity.END;
         syncGripPos();
-        grip.setDragHost(new HudGripView.DragHost() {
+        grip.setDragHost(new HudTitleView.DragHost() {
             private long lastSave = 0;
             public void onDrag(int dx, int dy) {
                 hudLp.x -= dx;                 // Gravity.END：往右拖 = x 变小
@@ -600,9 +588,18 @@ public class PerfService extends Service {
 
     private void syncGripPos() {
         if (gripLp == null || hudLp == null) return;
-        int w = (hud != null && hud.getWidth() > 0) ? hud.getWidth() : dp(90);
-        gripLp.x = Math.max(0, hudLp.x + w - dp(20));
-        gripLp.y = Math.max(0, hudLp.y - dp(1));
+        int[] sz = screenSize();
+        int listW = (hud != null && hud.getWidth() > 0) ? hud.getWidth() : dp(90);
+        int th = (grip != null && grip.getHeight() > 0) ? grip.getHeight() : dp(26);
+        if (alignRightNow) {
+            gripLp.x = Math.max(0, hudLp.x);                       // 右对齐：右边缘对齐
+        } else {
+            int leftOnScreen = sz[0] - hudLp.x - listW;            // 列表左边缘
+            gripLp.x = Math.max(0, sz[0] - leftOnScreen - (grip != null && grip.getWidth() > 0 ? grip.getWidth() : dp(120)));
+        }
+        int ty = hudLp.y - th - dp(2);                             // 放在列表上面
+        if (ty < 0) ty = hudLp.y + ((hud != null && hud.getHeight() > 0) ? hud.getHeight() : dp(60)) + dp(2);
+        gripLp.y = Math.max(0, ty);
     }
 
     /** 当前屏幕的宽高：优先 WindowMetrics（跟着朝向走），退路 DisplayMetrics */
@@ -623,15 +620,12 @@ public class PerfService extends Service {
         int[] sz = screenSize();
         int sw = sz[0], sh = sz[1];
         int w = (hud.getWidth() > 0) ? hud.getWidth() : dp(90);
-        int h = (hud.getHeight() > 0) ? hud.getHeight() : dp(60);
-        int leftPx = sw - hudLp.x - w;                 // 左边缘到屏幕左边
-        boolean alignRight = (leftPx + w / 2) > sw / 2;
-        // 用屏幕的"中线"分上下：整块的中心过了中线就算下半屏
-        // （横屏时 sw/sh 会互换，所以这里是按当前朝向算的）
-        boolean topHalf = (hudLp.y + h / 2) < sh / 2;
-        hudQuad = (topHalf ? "上" : "下") + (alignRight ? "右" : "左");
-        hudDesc = topHalf ? "字号向下递减" : "字号向下递增";
-        hud.setLayoutMode(alignRight, topHalf);
+        int leftPx = sw - hudLp.x - w;                 // 列表左边缘到屏幕左边
+        boolean alignRight = (leftPx + w / 2) > sw / 2;   // 只看左右半边（上下那套撤了）
+        alignRightNow = alignRight;
+        hudQuad = alignRight ? "右" : "左";
+        hudDesc = "靠" + hudQuad + "对齐";
+        hud.setLayoutMode(alignRight);
     }
 
     private void refreshHud() {
@@ -643,13 +637,15 @@ public class PerfService extends Service {
         java.util.Collections.sort(use, new java.util.Comparator<String>() {
             public int compare(String a, String b) { return b.length() - a.length(); }
         });
-        use.add(0, titleLine());
         try {
             if (on) {
-                hud.setTitleMode(true);
                 hud.setVisibility(View.VISIBLE);
                 hud.setLines(use);
                 ensureGrip();
+                if (grip != null) {
+                    grip.setTitle(titleLine());
+                    if (fontSp >= 8f) grip.setFontSp(fontSp);
+                }
                 updateHudLayout();
             } else {
                 hud.setVisibility(View.GONE);
