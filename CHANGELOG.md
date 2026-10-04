@@ -1,6 +1,38 @@
 # 更新日志
 
+## v3.4.14
+
+### 受保护的执行：堵住「32 位目标完全跟不住」这个洞（很可能就是"reboot 拦不住"的真因）
+
+syscall 号是跟**位数**绑的：arm64 的 `reboot` = 142，**32 位 ARM 的 `reboot` = 88**。
+而 guard 只实现了两张 **64 位** 表（aarch64 / x86_64）——
+**32 位（armeabi-v7a）目标会让它整张表读错**，不但拦不住，还可能误判别的系统调用 ✗。
+很多格机样本的 payload 正是 32 位 ✗。
+
+策略改成「宁可拦住，也不放过」：
+
+- **起手检查目标**：32 位 ELF → **直接拒绝执行**（rc=5，日志写明原因）
+- **每次 execve 也检查**：脚本里再拉一个 32 位程序 → **当场掐掉**
+- 实测：64 位目标照常 rc=0 ✓；伪装成 32 位的目标 rc=5 被拒 ✓；
+  正常脚本（`sh -c 'echo hi; ls'`）**零误报** ✓
+
+### 顺带：写黑名单补 `/dev/port`
+
+> 关于"把 `/dev/` 整个加黑名单"：**不建议** —— `/dev/null`、`/dev/binder`、
+> `/dev/socket/*`、`/dev/urandom`、`/dev/tty` 这些**每个正常程序每时每刻都在用** ✗，
+> 整个拉黑等于让 guard 拦死所有脚本。所以只用**精确名单**：
+> `/dev/mem`、`/dev/kmem`、`/dev/port`、`/proc/kcore` + 块设备规则 + 属性 payload 检查。
+
+### 关于 reboot 的两条路
+
+- **`reboot(2)` 系统调用**：一直拦得住（自测第 ⑧ 项，rc=3）✓
+- **`setprop sys.powerctl reboot`**：这条**没有 reboot 系统调用**，只是往
+  `/dev/socket/property_service` 发一条属性 —— guard 里已经有对应的检查
+  （connect 认 socket + 查 `sendmsg` 的 iovec 内容里有没有 `powerctl`，
+  命中就掐），但**这个沙箱里没有 property 服务，测不了**，需要真机验证 ✓
+
 ## v3.4.13
+
 
 ### 受保护的执行：堵住「mmap 直写块设备」这个洞
 

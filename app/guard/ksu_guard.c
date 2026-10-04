@@ -526,7 +526,7 @@ static const char *WRITE_DENY[] = {
     "proc/sys/kernel/selinux",     /* 样本关 SELinux 用的 */
     "sys/fs/selinux",
     "sys/kernel/security",
-    "/dev/mem", "/dev/kmem", "/proc/kcore",
+    "/dev/mem", "/dev/kmem", "/dev/port", "/proc/kcore",
     NULL
 };
 static const char *write_deny_hit(const char *p) {
@@ -565,6 +565,30 @@ static void reap_all(void) {
     }
 }
 
+
+/* ============================================================
+ *  32 位目标怎么办
+ *
+ *  syscall 号是跟"位数"绑的：arm64 的 reboot = 142，32 位 ARM 的 reboot = 88。
+ *  本 guard 只实现了两张 64 位表（aarch64 / x86_64），拿 64 位表去跟 32 位目标
+ *  会【整张表读错】—— 不但拦不住，还可能误判别的系统调用 ✗。
+ *
+ *  所以策略是"宁可拦住，也不放过"：目标/被 exec 的东西只要是 32 位 ELF，
+ *  直接拒绝（或杀掉），并在日志里说清楚。
+ * ============================================================ */
+static int elf_is32(const char *path) {
+    if (!path || !*path) return 0;
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return 0;
+    unsigned char h[5];
+    memset(h, 0, sizeof h);
+    ssize_t k = read(fd, h, sizeof h);
+    close(fd);
+    if (k < 5) return 0;
+    if (h[0] != 0x7f || h[1] != 'E' || h[2] != 'L' || h[3] != 'F') return 0;  /* 不是 ELF（脚本等）不管 */
+    return h[4] == 1;       /* EI_CLASS: 1 = 32 位, 2 = 64 位 */
+}
+
 int main(int argc, char **argv) {
     int i = 1;
     const char *logpath = "/data/local/tmp/ksu_guard.log";
@@ -595,6 +619,20 @@ int main(int argc, char **argv) {
 
     if (!opt_kill) lg("!! 警告模式：只记录，不拦截");
     if (opt_allow_mount) lg("mount/umount2 已放行");
+
+    /* 起手先看目标位数：32 位直接拒绝跑（见 elf_is32 的说明） */
+    {
+        const char *tp = argv[i];
+        if (elf_is32(tp)) {
+            fprintf(stderr, "!! 目标 %s 是【32 位】程序 —— 本 guard 只实现了 64 位 syscall 表，\n"
+                            "   硬跟会整张表读错（等于没有防护）。为安全起见拒绝执行。\n", tp);
+            if (logpath[0]) {
+                FILE *lf = fopen(logpath, "a");
+                if (lf) { fprintf(lf, "!! 拒绝执行：目标是 32 位程序（%s），32 位 syscall 表未实现\n", tp); fclose(lf); }
+            }
+            return 5;
+        }
+    }
 
     child = fork();
     if (child < 0) { perror("fork"); return 1; }
@@ -770,11 +808,22 @@ int main(int argc, char **argv) {
                 path_hit(cur, (int)A[2], p2, detail, sizeof detail))
                 why = "rename 涉及 /dev/block";
         } else if (nr == NR_execve || nr == NR_truncate) {
+            /* 先看被 exec 的东西是不是 32 位（脚本拉起来的 wiper 常常是 armeabi-v7a） */
+            {
+                char ep[PATH_MAX];
+                rdstr(cur, A[0], ep, sizeof ep);
+                if (elf_is32(ep)) {
+                    why = "exec 32 位程序（syscall 表不同，跟不住 → 掐掉）";
+                    snprintf(detail, sizeof detail, "%s", ep);
+                }
+            }
+            if (!why) {
             char path[PATH_MAX];
             rdstr(cur, A[0], path, sizeof path);
             if (path_hit(cur, -1, path, detail, sizeof detail)) why = "对 /dev/block 动手";
         /* ---- ② fd 类：拿到块设备 fd 之后的任何操作 ---- */
-        } else if (nr == NR_write || nr == NR_pwrite64 || nr == NR_writev) {
+                    }
+} else if (nr == NR_write || nr == NR_pwrite64 || nr == NR_writev) {
             int fd = (int)A[0];
             if (fd_is_danger_parent(cur, fd)) {
                 why = "写块设备 / 分区表";
