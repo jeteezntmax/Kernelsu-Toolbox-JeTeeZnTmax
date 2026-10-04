@@ -5008,7 +5008,8 @@ async function gaPickApp(){
   if(!list.length){ toast("一个应用都没读到"); return; }
   let labels = {};
   try{ const pi = packagesInfo(list.slice(0, 400)); if(pi) pi.forEach(x => { labels[x.packageName] = x.appLabel || ""; }); }catch(e){}
-  const rows = list.map(pk => '<button class="pk-item" data-pkg="' + esc(pk) + '">' +
+  const curApp = gaState().app || "";
+  const rows = list.map(pk => '<button class="pk-item' + (pk === curApp ? ' sel' : '') + '" data-pkg="' + esc(pk) + '">' +
       '<div class="n"><strong>' + esc(labels[pk] || pk) + '</strong><span>' + esc(pk) + '</span></div>' +
       '<div class="ck">✓</div></button>').join("");
   openModal("挑一个要加速的应用", list.length + " 个已安装应用",
@@ -5104,9 +5105,9 @@ async function gaWlPick(){
   let labels = {};
   try{ const pi = packagesInfo(list.slice(0,400)); if(pi) pi.forEach(x => { labels[x.packageName] = x.appLabel || ""; }); }catch(e){}
   const cur = gaWlList();
-  const rows = list.map(pk => '<button class="pk-item" data-wlp="' + esc(pk) + '">' +
+  const rows = list.map(pk => '<button class="pk-item' + (cur.indexOf(pk) >= 0 ? ' sel' : '') + '" data-wlp="' + esc(pk) + '">' +
       '<div class="n"><strong>' + esc(labels[pk] || pk) + '</strong><span>' + esc(pk) + '</span></div>' +
-      '<div class="ck">' + (cur.indexOf(pk) >= 0 ? "✓" : "") + '</div></button>').join("");
+      '<div class="ck">✓</div></button>').join("");
   openModal("清后台白名单", "不选 = 谁都可以被清",
     '<div class="modal-search"><input class="modern-input" id="gaWlSearch" placeholder="搜应用名或包名…" autocomplete="off" spellcheck="false"></div>' +
     '<div class="row-list" id="gaWlList">' + rows + '</div>',
@@ -5118,7 +5119,9 @@ async function gaWlPick(){
     if(!b) return;
     const pk = b.getAttribute("data-wlp");
     if(sel[pk]) delete sel[pk]; else sel[pk] = 1;
-    b.querySelector(".ck").textContent = sel[pk] ? "✓" : "";
+    // 注意：勾是靠 .pk-item.sel 才显示（.ck 平时是 color:transparent），
+    // 只改文字是看不见的 —— 之前白名单"点不动"就是这个原因
+    if(sel[pk]) b.classList.add("sel"); else b.classList.remove("sel");
   });
   const se = $("gaWlSearch");
   se.addEventListener("input", function(){
