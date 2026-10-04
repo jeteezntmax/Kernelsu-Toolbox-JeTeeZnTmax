@@ -421,16 +421,7 @@ public class PerfService extends Service {
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
         hudLp.gravity = Gravity.TOP | Gravity.END;      // 默认贴右上角
-        // 注意：TOP|END 时 x 是从【右边缘】量的 —— 负数就是跑到屏幕外面去了。
-        // 之前"拖动镜像"那个 bug 会把坐标存成很负的数，这里必须夹一次，
-        // 否则窗口加是加上了，但用户在屏幕上看不到（"显示开却没出来"就是这个）。
-        int sw = getResources().getDisplayMetrics().widthPixels;
-        int shh = getResources().getDisplayMetrics().heightPixels;
-        int hx = sp.getInt("hx", dp(6)), hy = sp.getInt("hy", dp(40));
-        if (hx < 0 || hx > sw - dp(60)) hx = dp(6);
-        if (hy < 0 || hy > shh - dp(60)) hy = dp(40);
-        hudLp.x = hx;
-        hudLp.y = hy;
+        applyHudPos();
         hud.setDragHost(new FeatureHudView.DragHost() {
             private long lastSave = 0;
             public void onDrag(int dx, int dy) {
@@ -442,11 +433,7 @@ public class PerfService extends Service {
                 if (hudLp.x < 0) hudLp.x = 0;                 // 别跑出右边缘
                 try { wm.updateViewLayout(hud, hudLp); } catch (Exception ignored) { }
                 long now = System.currentTimeMillis();
-                if (now - lastSave > 600) {
-                    lastSave = now;
-                    getSharedPreferences(PREF, MODE_PRIVATE).edit()
-                            .putInt("hx", hudLp.x).putInt("hy", hudLp.y).apply();
-                }
+                if (now - lastSave > 600) { lastSave = now; saveHudPos(); }
             }
         });
         try {
@@ -501,6 +488,64 @@ public class PerfService extends Service {
         String st = run ? "启用" : "停用";
         if (hudTitle == null || hudTitle.trim().isEmpty()) return "KSU工具箱-游戏加速：" + st;
         return hudTitle.trim().replace("%s", st);
+    }
+
+    /**
+     * 位置**按屏幕比例**存。
+     * 为什么：横屏玩游戏时把它拖到最边上，存下来的是横屏的像素值；
+     * 转回竖屏宽高互换，那个像素值就跑到屏幕外了 —— 表现就是"显示开却看不到"。
+     * 用比例存，转屏后按新尺寸重算，永远在看得见的地方。
+     */
+    private void saveHudPos() {
+        if (hudLp == null) return;
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        int sw = Math.max(1, dm.widthPixels), sh = Math.max(1, dm.heightPixels);
+        getSharedPreferences(PREF, MODE_PRIVATE).edit()
+                .putInt("hx", hudLp.x).putInt("hy", hudLp.y)
+                .putInt("sw", sw).putInt("sh", sh)
+                .putFloat("hxp", hudLp.x / (float) sw)
+                .putFloat("hyp", hudLp.y / (float) sh)
+                .apply();
+    }
+
+    private void applyHudPos() {
+        if (hudLp == null) return;
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        int sw = dm.widthPixels, sh = dm.heightPixels;
+        SharedPreferences sp = getSharedPreferences(PREF, MODE_PRIVATE);
+        int hx, hy;
+        float hxp = sp.getFloat("hxp", -1f), hyp = sp.getFloat("hyp", -1f);
+        if (hxp >= 0f) {
+            hx = (int) (hxp * sw);
+            hy = (int) (hyp * sh);
+        } else {
+            hx = sp.getInt("hx", dp(6));
+            hy = sp.getInt("hy", dp(40));
+            int osw = sp.getInt("sw", 0), osh = sp.getInt("sh", 0);
+            if (osw > 0 && osh > 0 && (osw != sw || osh != sh)) {   // 老像素数据换算一次
+                hx = (int) (hx * (float) sw / osw);
+                hy = (int) (hy * (float) sh / osh);
+            }
+        }
+        if (hx < 0) hx = dp(6);
+        if (hx > sw - dp(60)) hx = Math.max(dp(6), sw - dp(60));
+        if (hy < 0) hy = dp(40);
+        if (hy > sh - dp(60)) hy = Math.max(dp(40), sh - dp(60));
+        hudLp.x = hx;
+        hudLp.y = hy;
+    }
+
+    /** 转屏：按新屏幕尺寸把提示窗挪回看得见的地方 */
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration cfg) {
+        super.onConfigurationChanged(cfg);
+        try {
+            if (hud != null && hudLp != null && wm != null) {
+                applyHudPos();
+                wm.updateViewLayout(hud, hudLp);
+                refreshHud();
+            }
+        } catch (Exception ignored) { }
     }
 
     private void refreshHud() {
