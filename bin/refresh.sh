@@ -120,6 +120,7 @@ lock)
     setcfg enabled 1
     setcfg hz "$HZ"
     setcfg mode "$MODE"
+    [ -n "$MODE" ] && setcfg did_mode 1     # 记下来：这次确实动过 preferred-mode
     apply_lock
     keep_start >/dev/null 2>&1
     echo "已锁定 ${HZ}Hz${MODE:+（modeId $MODE）}，保活=$(keep_running && echo 开 || echo 关)"
@@ -135,12 +136,32 @@ restore)
     if [ -n "$OM" ]; then swr min_refresh_rate "$OM"; else
         [ "$DRY" = "1" ] && echo "[dry] settings delete system min_refresh_rate" || settings delete system min_refresh_rate >/dev/null 2>&1
     fi
+    ok_mode=1
     if [ -n "$OMD" ]; then
         [ "$DRY" = "1" ] && echo "[dry] cmd display set-user-preferred-display-mode $OMD" \
                          || timeout 8 cmd display set-user-preferred-display-mode "$OMD" >/dev/null 2>&1
+    elif [ "$(cfg did_mode)" = "1" ]; then
+        # 锁定时确实改过 preferred-mode，但原始值当时读不到 → 用"原 peak 对应的 mode"兜底
+        want=${OP%%.*}
+        rm2=$(do_scan 2>/dev/null | sed -n "s/^modes=.*\b$want=\([0-9]*\).*/\1/p")
+        if [ -n "$rm2" ]; then
+            [ "$DRY" = "1" ] && echo "[dry] cmd display set-user-preferred-display-mode $rm2（按原 peak ${want}Hz 推断）" \
+                             || timeout 8 cmd display set-user-preferred-display-mode "$rm2" >/dev/null 2>&1
+            log "restore：原模式未知，按原 peak=${want}Hz 推断为 modeId=$rm2 还原"
+        else
+            ok_mode=0
+        fi
     fi
-    log "restore（原值 peak=$OP min=$OM mode=$OMD，从 $HZ 还原）"
-    rm -f "$CONF" "$REVERTS"
+    log "restore（原值 peak=$OP min=$OM mode=$OMD，从 $HZ 还原，ok_mode=$ok_mode）"
+    if [ "$ok_mode" = "1" ]; then
+        rm -f "$CONF" "$REVERTS"
+    else
+        # 审查报告说得对：恢复没做完就别把记录删了 ✗
+        echo "pending" > "$BASE/restore.pending" 2>/dev/null
+        echo "⚠ 原始显示模式读不到、也推断不出来 —— 记录已保留在 $BASE/（含 restore.pending）"
+        echo "   请在系统显示设置里确认一下刷新率，需要的话手动改回。"
+        log "!! 恢复不完整：preferred-mode 没能还原（记录保留，peek 配置文件）"
+    fi
     echo "已还原到锁定前（peak=${OP:-默认} min=${OM:-默认}）"
     ;;
 status)
@@ -177,6 +198,16 @@ loop)
             echo "$n" > "$REVERTS" 2>/dev/null
             log "被改回：peak=$cp min=$cm（我们要 $HZ）→ 重写（第 $n 次）"
             apply_lock
+        fi
+        # 保活也要看 preferred-mode（原来只看 peak/min，被别人改了不会发现 ✗）
+        if [ -n "$MODE" ] && [ "$(cfg did_mode)" = "1" ]; then
+            cm=$(timeout 6 cmd display get-user-preferred-display-mode 2>/dev/null | sed -n 's/.*[Ii]d*=\([0-9][0-9]*\).*/\1/p' | head -n1)
+            if [ -n "$cm" ] && [ "$cm" != "$MODE" ]; then
+                n=$(cat "$REVERTS" 2>/dev/null); n=$(( ${n:-0} + 1 ))
+                echo "$n" > "$REVERTS" 2>/dev/null
+                log "preferred-mode 被改：$cm → 重新写 $MODE（第 $n 次）"
+                [ "$DRY" = "1" ] || timeout 8 cmd display set-user-preferred-display-mode "$MODE" >/dev/null 2>&1
+            fi
         fi
         sleep "$IV"
     done

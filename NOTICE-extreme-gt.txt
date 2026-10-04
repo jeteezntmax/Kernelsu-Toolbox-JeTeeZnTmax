@@ -1,0 +1,49 @@
+本模块内含 Extreme GT 的分发内容
+================================================================
+
+  Extreme GT  vAB-1.3.0
+  作者：嘟嘟ski & AB
+  二改版：无损去温控
+
+本模块内以下内容来自该模块：
+
+  eg-setup.sh                       安装期扫描并生成去温控配置（原 customize.sh）
+  bin/eg.sh                         开机应用逻辑（原 service.sh + post-fs-data.sh）
+  sys_thermal_control_config_default.xml   兜底用的默认配置模板
+
+原模块的 post-fs-data.sh 逻辑（往 /dev/anyfs/upper 预拷贝）已并入 bin/eg.sh 的
+挂载流程；META-INF 与本模块无关，未采用。
+
+除以下改动外，逻辑保持原样：
+  * 路径改为 $MODPATH / $MODDIR 相对，以适配本模块的目录名
+  * 拆成 early / late 两阶段，并加了一层崩溃自检
+  * 每一项做成可单独开关（/data/adb/ksu_toolbox/eg.txt）
+
+----------------------------------------------------------------
+它做什么
+----------------------------------------------------------------
+
+它不写 sysfs 温度，而是**改配置层**：
+
+  1. 安装时扫描 /odm /my_product /vendor /system/vendor /product /system 下
+     真实存在的温控配置（sys_thermal_control_config*.xml、sys_thermal_config.xml、
+     sys_high_temp_protect_*.xml、thermallevel_to_fps.xml、game_thermal_config.xml、
+     QEGA_Config.txt、qapegameconfig.txt、devices_config.json 等），
+     按规则生成"去温控"版本放进本模块。
+  2. 开机后把这些文件逐个 bind-mount 回原路径，让温控服务读到的是放宽后的配置。
+  3. 只对一份**手工挑选的 zone 白名单**写 emul_temp = 29500：
+     rear-tof-therm / cam-flash-therm / batt-therm / usb-therm / wlan-therm /
+     xo-therm / oplus_thermal_ipa / shell*
+     非 OnePlus SM8650 机型则改为停掉 vendor.oplus.ormsHalService-aidl-default。
+  4. GPU：max_pwrlevel=0、max_gpu_clk / max_clock_mhz=2147483647
+  5. 触摸进程 renice -19；`dumpsys horae testmode` + 往 /proc/shell-temp 写 29500
+
+注意第 3 条只碰白名单，不是"所有 zone" —— 这一点很关键。
+
+----------------------------------------------------------------
+原作者与本模块的关系
+----------------------------------------------------------------
+
+本模块作者只做了路径适配、分阶段调度和开关化，没有修改它的处理逻辑，
+也没有声称对 Extreme GT 的原创性。Extreme GT 的著作权归其作者所有。
+如需再分发，请自行确认原作者意愿。

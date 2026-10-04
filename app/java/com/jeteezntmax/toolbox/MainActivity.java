@@ -416,6 +416,8 @@ public class MainActivity extends Activity {
 
     /* ================= root 执行 ================= */
     private static class Result {
+
+        boolean timedOut;
         int code = -1;
         String out = "";
         String err = "";
@@ -452,9 +454,24 @@ public class MainActivity extends Activity {
                 }
             });
             et.start();
-            r.out = readAll(p.getInputStream());
-            r.code = p.waitFor();
+            final StringBuilder ob = new StringBuilder();
+            Thread ot = new Thread(new Runnable() {
+                public void run() {
+                    try { ob.append(readAll(fp.getInputStream())); } catch (Exception ignored) { }
+                }
+            });
+            ot.start();
+            boolean done = false;
+            try { done = p.waitFor(SU_TIMEOUT_SEC, java.util.concurrent.TimeUnit.SECONDS); }
+            catch (Exception ignored) { }
+            if (!done) {                       // 超时：杀掉，别让界面永远等下去
+                try { p.destroyForcibly(); } catch (Exception ignored) { }
+                r.timedOut = true;
+            }
+            ot.join(1500);
             et.join(1500);
+            r.out = ob.toString();
+            r.code = done ? p.exitValue() : -1;
             r.err = eb.toString();
         } catch (Exception e) {
             r.err = String.valueOf(e.getMessage());
@@ -464,17 +481,25 @@ public class MainActivity extends Activity {
         return r;
     }
 
+    /**
+     * 读干一个流。
+     * 关键：超过上限【也要继续读】——以前是 break 掉，子进程写满管道就永远阻塞，
+     * 而这边在 waitFor() 等它退出 → 双方互等，界面假死 ✗（审查报告点出的 P0，核实成立）。
+     */
+    private static final long SU_TIMEOUT_SEC = 25;   // 单条命令最长等 25 秒（超时杀掉）
+
     private static String readAll(InputStream in) throws IOException {
-        if (in == null) return "";
         StringBuilder sb = new StringBuilder();
-        BufferedReader br = new BufferedReader(new InputStreamReader(in, "UTF-8"), 8192);
-        char[] buf = new char[8192];
-        int n;
+        byte[] buf = new byte[8192];
         long total = 0;
-        while ((n = br.read(buf)) > 0) {
-            total += n;
-            if (total > 4 * 1024 * 1024) break;   // 别让某条命令把内存吃干
-            sb.append(buf, 0, n);
+        int k;
+        while ((k = in.read(buf)) > 0) {
+            total += k;
+            if (sb.length() < 4 * 1024 * 1024) {          // 只保留前 4 MiB
+                sb.append(new String(buf, 0, k, "UTF-8"));
+            }
+            // 超出部分照读不误（丢掉就行），保证子进程不卡在写管道上
+            if (total > 64L * 1024 * 1024) break;         // 极端情况才真放弃
         }
         return sb.toString();
     }
