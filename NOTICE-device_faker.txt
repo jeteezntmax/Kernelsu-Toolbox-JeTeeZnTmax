@@ -1,0 +1,49 @@
+本模块内含 device_faker 的分发内容
+================================================================
+
+  Device Faker
+  Copyright (C) 2025-2026 Seyud
+  https://github.com/Seyud/device_faker
+
+  许可证：GNU General Public License v3.0
+
+本模块内以下内容来自 device_faker 的官方发布包：
+
+  zygisk/arm64-v8a.so          Zygisk 原生库（机型伪装的实现本体）
+  bin/device_faker_cli         它的配置转换工具
+  webroot/df.html              它自带的 WebUI 入口
+  webroot/assets/*             上述 WebUI 的静态资源
+  df-default-config.toml       它的默认配置模板（安装时复制到
+                               /data/adb/device_faker/config/config.toml）
+
+以上内容未作任何修改。
+
+----------------------------------------------------------------
+许可证义务
+----------------------------------------------------------------
+
+device_faker 以 GPL-3.0 发布。把它与本模块打包在一起分发，
+属于形成一个「组合作品」，因此整个组合作品同样受 GPL-3.0 约束：
+
+  * 本模块整体以 GPL-3.0 分发
+  * 必须附带完整许可证全文
+  * 必须提供对应源代码，或给出获取源代码的明确途径
+  * 不得对本组合作品附加额外限制
+
+device_faker 的完整源码：
+  https://github.com/Seyud/device_faker
+
+GNU GPL v3.0 全文：
+  https://www.gnu.org/licenses/gpl-3.0.txt
+  （同目录下的 LICENSE 就是 GPL-3.0 全文）
+
+----------------------------------------------------------------
+本模块自己写的那部分
+----------------------------------------------------------------
+
+webroot/index.html 以及 webroot/df.html 里注入的返回按钮，
+是本模块作者的作品，随整个组合作品一起按 GPL-3.0 分发。
+
+本模块没有修改 device_faker 的任何二进制或脚本；
+它运行时读写的数据目录 /data/adb/device_faker/ 与独立安装时完全一致，
+所以配置、日志可以原样迁移。
