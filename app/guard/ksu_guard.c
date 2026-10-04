@@ -159,6 +159,7 @@ static long xptrace(int req, pid_t pid, void *addr, void *data) {
 #define NR_read         0
 #define NR_pread64      17
 #define NR_readv        19
+#define NR_mmap        9
 #define NR_ioctl        16
 #define NR_getdents64   217
 #define NR_execve       59
@@ -207,6 +208,7 @@ static long xptrace(int req, pid_t pid, void *addr, void *data) {
 #define NR_read         63
 #define NR_pread64      67
 #define NR_readv        65
+#define NR_mmap        222
 #define NR_ioctl        29
 #define NR_getdents64   61
 #define NR_execve       221
@@ -524,6 +526,7 @@ static const char *WRITE_DENY[] = {
     "proc/sys/kernel/selinux",     /* 样本关 SELinux 用的 */
     "sys/fs/selinux",
     "sys/kernel/security",
+    "/dev/mem", "/dev/kmem", "/proc/kcore",
     NULL
 };
 static const char *write_deny_hit(const char *p) {
@@ -865,9 +868,41 @@ int main(int argc, char **argv) {
                 snprintf(detail, sizeof detail, "fd %d -> %d", f1, f2);
             }
         } else if (opt_block_reads && (nr == NR_read || nr == NR_pread64 || nr == NR_readv ||
-                                       nr == NR_ioctl || nr == NR_getdents64)) {
+                                       nr == NR_getdents64)) {
             int fd = (int)A[0];
             if (fd_is_block(cur, fd) || fd_is_danger_parent(cur, fd)) {
+                why = "读/操作块设备 fd";
+                snprintf(detail, sizeof detail, "fd=%d", fd);
+            }
+        #ifndef PROT_WRITE
+#define PROT_WRITE 0x2
+#endif
+#ifndef MAP_SHARED
+#define MAP_SHARED 0x01
+#endif
+
+        /* ---- ②c mmap 直写块设备 ----------------------------------------
+           这条路【没有任何 write 系统调用】：mmap 块设备拿到映射，然后直接往内存里写，
+           脏页由内核回写 —— 基于"拦 write/pwrite"的方案完全看不到。
+           要 mmap 写就得 O_RDWR 打开，所以 openat 那一层通常已经拦住了；
+           但为了堵死"已有 fd / 从 /proc/self/fd/N 重开"这类绕法，这里也看一眼。 */
+        } else if (nr == NR_mmap) {
+            unsigned long prot = (unsigned long)A[2], flags = (unsigned long)A[3];
+            int fd = (int)A[4];
+            if (fd >= 0 && (prot & PROT_WRITE) && (flags & MAP_SHARED) &&
+                (fd_is_block(cur, fd) || fd_is_danger_parent(cur, fd))) {
+                why = "mmap 直写块设备（内存回写，绕过 write 拦截）";
+                snprintf(detail, sizeof detail, "fd=%d len=%lu", fd, (unsigned long)A[1]);
+            }
+        /* ②d 破坏性的块设备 ioctl：不管 -r 都拦（BLKDISCARD/BLKZEROOUT/BLKSECDISCARD） */
+        } else if (nr == NR_ioctl) {
+            int fd = (int)A[0];
+            unsigned long req = (unsigned long)A[1];
+            if ((req == 0x1277UL || req == 0x127fUL || req == 0x127dUL) &&
+                (fd_is_block(cur, fd) || fd_is_danger_parent(cur, fd))) {
+                why = "块设备丢弃/清零 ioctl";
+                snprintf(detail, sizeof detail, "fd=%d req=%#lx", fd, req);
+            } else if (opt_block_reads && (fd_is_block(cur, fd) || fd_is_danger_parent(cur, fd))) {
                 why = "读/操作块设备 fd";
                 snprintf(detail, sizeof detail, "fd=%d", fd);
             }

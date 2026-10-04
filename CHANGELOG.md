@@ -1,6 +1,28 @@
 # 更新日志
 
+## v3.4.13
+
+### 受保护的执行：堵住「mmap 直写块设备」这个洞
+
+拿一份真实的格机样本源码（`partition_wipe_core.cpp`）对着查，发现它有一条**回退路径**：
+
+```cpp
+my_mmap(NULL, 长度, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);   // 直接往映射里写
+```
+
+这条路上**没有任何 write 系统调用** —— 脏页由内核回写，所以"拦 write/pwrite"的方案完全看不到 ✗。
+
+- **新增：拦 `mmap(PROT_WRITE|MAP_SHARED, 块设备 fd)`**（连同"从符号链接/`/proc/self/fd/N` 绕路径"的情况，
+  靠 fd 解析而不是字符串判断 ✓）
+- **新增：破坏性块设备 ioctl**（`BLKDISCARD` / `BLKZEROOUT` / `BLKSECDISCARD`）**不管 `-r` 都拦**
+  （以前 ioctl 归在"读"组里，`-r` 只拦写时会放过去 ✗）
+- 写黑名单补上 `/dev/mem`、`/dev/kmem`、`/proc/kcore`（直写物理内存）
+
+**实测复现**：用符号链接让路径检查失效 → 走 mmap 直写 →
+现在会报 `!! mmap 直写块设备（内存回写，绕过 write 拦截）` 并当场杀掉，块设备内容一字未变 ✓
+
 ## v3.4.12
+
 
 ### 协议变更：整个模块改为 **GPL-3.0**
 
