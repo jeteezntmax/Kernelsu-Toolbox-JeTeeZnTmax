@@ -3219,7 +3219,7 @@ async function regenAndroidId(){
  *  11. 温控
  *  ------------------------------------------------------------
  *  纯 shell 实现：温度总览 / 温控服务开关 / thermal zone 开关 /
- *  降频 / 限充电电流。温度伪装走内嵌的 Extreme GT（见 bin/eg.sh）。
+ *  降频 / 限充电电流。温度伪装见 /温度 页（bin/therm.sh）。
  *  直接读写它的明文配置（温度伪装本体由它的原生库完成）。
  * ============================================================ */
 const THERM_STATIC = [
@@ -3285,7 +3285,7 @@ function kvPairs(s, sep){
   return out;
 }
 // 不是所有 "thermal zone" 都报温度 —— 有些是虚拟传感器，temp 里放的是
-// 电压(mV) / 电流(mA) / 功率。这些类型直接跳过（Extreme GT 的 action.sh
+// 电压(mV) / 电流(mA) / 功率。这些类型直接跳过（
 // 也是这么过滤的，我漏抄了，才导致「其他」显示 700 多度）。
 const ZONE_SKIP = /vbat|volt|current|power|soc_volt|resistance|capacity|_mv$|_ma$/i;
 function zoneIsTemp(type){
@@ -3354,12 +3354,9 @@ async function loadThermal(){
   if(state.tab === "settings" || state.tab === "about") $("content").innerHTML = TABS[state.tab]();
 }
 async function loadThermalDyn(){
-  const t = thermalState();
+  // 【已改造】数据源从 eg.sh 换成 therm.sh zones（见 thZones()）
   if(state.tab !== "thermal") return;
   try{ thInit(); }catch(e){}
-  if(t.demo){ updateThermal(demoThermalDyn()); return; }
-  const r = await sh(THERM_DYN.join("; "), 15000, "thermal_dyn");
-  updateThermal(r.stderr === "__NOBRIDGE__" ? demoThermalDyn() : parseKV(r.stdout));
 }
 function demoThermalStatic(){
   return {
@@ -3387,34 +3384,17 @@ function demoThermalDyn(){
 
 /* ---------- 界面 ---------- */
 function thermalHTML(){
+  // 【只读版】温度伪装（写热区节点）已整体删除 —— 作者实测本机写热区会让热控卡死 + 系统重启 ✗
   return `<div class="view">
-    <div class="section-head"><h2>温度</h2>${backBtn()}</div>
+    <div class="section-head"><h2>温度</h2><span class="hint" id="thHint">只读</span></div>
     <section class="card row-list" id="thBody">
       <div class="row"><span>状态</span><strong>读取中…</strong></div>
     </section>
-
-    <div class="section-head" style="margin-top:2px"><h2>温度伪装</h2><span class="hint" id="thHint">therm.sh</span></div>
-    <section class="card file-card">
-      <div class="tagrow">
-        <button class="chip-btn" id="thCapsBtn">探测能力</button>
-        <button class="chip-btn" id="thRestore" style="color:var(--red)">全部还原</button>
-        <button class="chip-btn" id="thLogBtn">日志</button>
-      </div>
-      <p class="field-hint" id="thStat">读取中…</p>
-      <label style="margin-top:8px">CPU / GPU 热区伪装成</label>
-      <div class="tagrow" id="thTemp"></div>
-      <label style="margin-top:8px">电池温度伪装成</label>
-      <div class="tagrow" id="thBatt"></div>
-      <label style="margin-top:8px">温度墙锁到</label>
-      <div class="tagrow" id="thWall"></div>
-      <label style="margin-top:8px">电池循环次数改成</label>
-      <div class="tagrow">
-        <input class="modern-input" id="thCycle" placeholder="例如 10" style="flex:1" autocomplete="off">
-        <button class="chip-btn" id="thCycleSave">写入</button>
-      </div>
-      <p class="field-hint" id="thCaps" style="white-space:pre-wrap;opacity:.85">点「探测能力」看看这台机器哪些节点能写 —— 写不了的会明确报不支持，不会瞎写。</p>
-      <p class="field-hint" id="thRaw" style="opacity:.75"></p>
-    </section>
+    <div class="tagrow" style="margin-top:8px">
+      <button class="chip-btn" data-thact="refresh">刷新温度</button>
+      <button class="chip-btn" data-thact="log">日志</button>
+    </div>
+    <p class="field-hint" style="color:#e8a33d">⚠ 温度伪装（往热区写节点）已从模块里【整体删除】：作者实测本机写热区会让热控守护进程卡死 → 系统重启 ✗（写 emul_temp 也一样）。这里只保留只读的温度读取 ✓</p>
   </div>`;
 }
 function zoneRowsHTML(ztypes){
@@ -3425,107 +3405,10 @@ function zoneRowsHTML(ztypes){
     '<span class="zflag" id="zm' + idx + '"></span></div>').join("");
 }
 function renderThermal(){
-  const t = thermalState();
+  // 【已改造】原来这里会拼 EG 那张卡 ✗，也从 eg.sh 读热区数据 ✗（eg.sh 已删，所以一直"读取中"）。
+  // 现在只当钩子：页面在的时候让 thInit() 去处理（它自己会拉 therm.sh zones）。
   if(state.tab !== "thermal" || !$("thBody")) return;
-  setTxt("thSub", t.demo ? "演示模式 · 模拟数据" : (t.ztypes.length + " 个 thermal zone · 每 2 秒刷新"));
-  setTxt("thCount", t.ztypes.length + " zone");
-  setTxt("tcnum", String(t.ztypes.length));
-
-  const body = [];
-  const eg = t.eg || egDefaults();
-  const egOn = eg.enabled === "1";
-
-  body.push('<div class="section-head"><h2>Extreme GT</h2><span class="hint">去温控 · 内嵌 vAB-1.3.0</span></div>');
-  body.push('<section class="card row-list">' +
-    '<div class="row"><span>设备</span><strong>' + esc([t.egManufacturer, t.egSoc].filter(Boolean).join(" / ") || "--") + '</strong></div>' +
-    '<div class="row"><span>系统版本号</span><strong>' + esc(t.egCos || "--") + '</strong></div>' +
-    '<div class="row"><span>走的路线</span><strong class="' + (t.egMatch ? "ok" : "warn") + '">' +
-      (t.egMatch ? "emul_temp 白名单" : "停 oplus ORMS 服务") + '</strong></div>' +
-    '<div class="row"><span>已生成配置</span><strong>' + t.egFiles + ' 个文件</strong></div>' +
-    '<div class="row"><span>已挂载</span><strong class="' + (t.egMounted ? "ok" : "") + '">' + t.egMounted + ' / ' + t.egFiles + '</strong></div>' +
-    '<div class="row"><span>emul_temp 命中</span><strong>' + t.egZoneHit + ' 个 zone</strong></div>' +
-    '</section>');
-
-  if(t.egLog){
-    body.push(banner("danger", "上次开机有过异常", t.egLog.replace(/\|/g, "；")));
-  }
-  if(!t.egFiles){
-    body.push(banner("warn", "还没生成配置", "说明安装时没扫到本机的温控 XML（可能不是欧加系设备）。重刷一次模块会重新扫描。"));
-  }
-
-  body.push('<section class="card">' +
-    '<button class="switchrow" data-thact="eg-enable">' +
-      '<div class="t"><strong>总开关</strong><span>关掉会立刻恢复温度伪装（XML 挂载要重启才撤）</span></div>' +
-      '<div class="swt ' + (egOn ? "on" : "") + '"></div></button>' +
-    EG_ITEMS.map(([k, name, hint]) => '<button class="switchrow" data-thact="eg-item" data-k1="' + k + '">' +
-        '<div class="t"><strong>' + esc(name) + '</strong><span>' + esc(hint) + '</span></div>' +
-        '<div class="swt ' + (eg[k] === "1" ? "on" : "") + '"></div></button>').join("") +
-    '</section>');
-  body.push('<div class="tagrow" style="padding:2px 4px 0">' +
-    '<button class="chip-btn" data-thact="eg-apply">立即重新应用</button>' +
-    '<button class="chip-btn" data-thact="eg-clear">恢复温度伪装</button>' +
-    '</div>');
-  body.push('<p class="field-hint">XML 覆盖是 bind-mount，改动要重启才彻底生效；' +
-    'emul_temp / GPU / 触摸 / horae 这几项点「立即重新应用」当场生效。</p>');
-
-  body.push('<div class="section-head"><h2>所有温度传感器</h2><span class="hint">按内核上报顺序</span></div>');
-  body.push('<section class="card core-list" id="thZoneBox">' + zoneRowsHTML(t.ztypes) + '</section>');
-
-  const svcNames = Object.keys(t.svcs);
-  const running = svcNames.filter(s => t.svcs[s] === "running");
-  body.push('<div class="section-head"><h2>系统温控服务</h2><span class="hint">' + running.length + ' / ' + svcNames.length + ' 在跑</span></div>');
-  if(svcNames.length){
-    body.push(banner("warn", "关掉温控机身会真的烫", "这些服务负责过热时降频、限流。停掉能换来更稳的帧率，但温度会明显上升 —— 建议只在打游戏时临时关。恢复不重启也能生效。"));
-    body.push('<section class="card">' + svcNames.map(s => {
-      const on = t.svcs[s] === "running";
-      return '<button class="switchrow" data-thact="svc" data-k1="' + esc(s) + '" data-k2="' + (on ? "stop" : "start") + '">' +
-        '<div class="t"><strong>' + esc(s) + '</strong><span>init.svc.' + esc(s) + ' = ' + esc(t.svcs[s]) + '</span></div>' +
-        '<div class="swt ' + (on ? "on" : "") + '"></div></button>';
-    }).join("") + '</section>');
-    body.push('<div class="tagrow" style="padding:2px 4px 0">' +
-      '<button class="chip-btn" data-thact="svc-all" data-k1="stop">全部停掉</button>' +
-      '<button class="chip-btn" data-thact="svc-all" data-k1="start">全部恢复</button></div>');
-  }else{
-    body.push(banner("ok", "没检测到常见温控服务", "可能温控做在驱动里，或者服务名不在常见列表内。zone 开关和限频照样可用。"));
-  }
-
-  const modes = t.ztypes.map(z => t.zmodes[z.n]).filter(v => v !== undefined && v !== "");
-  const off = modes.filter(v => v === "disabled" || v === "1").length;
-  body.push('<div class="section-head"><h2>thermal zone 开关</h2><span class="hint">' + off + ' / ' + modes.length + ' 已禁用</span></div>');
-  body.push('<section class="card"><button class="switchrow" data-thact="zone-all" data-k1="' + (off > 0 ? "on" : "off") + '">' +
-    '<div class="t"><strong>' + (off > 0 ? "恢复全部 zone" : "禁用全部 zone 温控") + '</strong>' +
-    '<span>写 /sys/class/thermal/thermal_zone*/mode，重启自动复原</span></div>' +
-    '<div class="swt ' + (off > 0 ? "on" : "") + '"></div></button></section>');
-
-  const cm = t.cpuMax.length ? Math.max.apply(null, t.cpuMax) : 0;
-  const cc = t.cpuCeil.length ? Math.max.apply(null, t.cpuCeil) : 0;
-  body.push('<div class="section-head"><h2>降温限频</h2><span class="hint">写 scaling_max_freq，重启复原</span></div>');
-  body.push('<section class="card row-list">' +
-    '<div class="row"><span>CPU 当前上限</span><strong>' + (cm ? (cm/1000).toFixed(0) + " MHz" : "--") + '</strong></div>' +
-    '<div class="row"><span>CPU 硬件上限</span><strong>' + (cc ? (cc/1000).toFixed(0) + " MHz" : "--") + '</strong></div>' +
-    '<div class="row"><span>GPU 当前上限</span><strong>' + (t.gpuMax ? fmtHz(t.gpuMax) : "--") + '</strong></div>' +
-    '</section>');
-  body.push('<section class="card tools">' +
-    '<button data-thact="freq" data-k1="100">原厂<em>上限 100%</em></button>' +
-    '<button data-thact="freq" data-k1="85">降一点<em>上限 85%</em></button>' +
-    '<button data-thact="freq" data-k1="70">降温<em>上限 70%</em></button>' +
-    '<button data-thact="freq" data-k1="55">冰镇<em>上限 55%</em></button>' +
-    '</section>');
-
-  body.push('<div class="section-head"><h2>充电电流上限</h2><span class="hint">降温最立竿见影</span></div>');
-  body.push('<section class="card row-list">' +
-    '<div class="row"><span>input_current_limit</span><strong id="thIc">' + esc(t.chg.input_current_limit || "--") + '</strong></div>' +
-    '<div class="row"><span>usb current_max</span><strong id="thUsb">' + esc(t.chg.usb_current_max || "--") + '</strong></div>' +
-    '<div class="row"><span>可写节点</span><strong>' + esc(t.chgNodes.join(", ") || "无") + '</strong></div>' +
-    '</section>');
-  body.push('<div class="tagrow" style="padding:2px 4px 0">' +
-    ["3000000", "2000000", "1500000", "1000000", "500000"].map(v =>
-      '<button class="chip-btn" data-thact="chg" data-k1="' + v + '">' + (Number(v)/1e6).toFixed(1).replace(/\.0$/, "") + ' A</button>').join("") +
-    '</div>');
-  body.push('<p class="field-hint">单位 µA（多数高通机型）。调小充电会慢但温度掉得明显，重启后由原厂温控接管。</p>');
-
-  $("thBody").innerHTML = body.join("");
-  renderTempCells();
+  try{ thInit(); }catch(e){}
 }
 function renderTempCells(){
   const t = thermalState();
@@ -3624,10 +3507,9 @@ async function thAct(act, k1, el){
       const c = Object.assign(egDefaults(), t.eg || {});
       c[k1] = c[k1] === "1" ? "0" : "1";
       await egWrite(c);
-    }else if(act === "eg-apply"){
-      await egWrite(Object.assign(egDefaults(), t.eg || {}));
-    }else if(act === "eg-clear"){
-      await egWrite(Object.assign(egDefaults(), t.eg || {}, {enabled:"0"}));
+    }else if(act === "eg-apply" || act === "eg-clear" || act === "eg-gone"){
+      // Extreme GT 已从模块移除（这些按钮在新版界面上已经不存在了）
+      toast("Extreme GT 已从模块移除");
     }else if(act === "freq"){
       const pct = clamp(parseInt(k1, 10) || 100, 10, 100);
       const cmd =
@@ -3675,7 +3557,7 @@ async function egRun(mode, okMsg){
     if(kv.orms) bits.push("ORMS 已停");
     if(kv.horae) bits.push("horae ok");
     toast(bits.length ? "已应用：" + bits.join(" · ") : "已应用");
-  }else if(mode === "clear") toast("已恢复温度伪装");
+  }else if(mode === "eg-gone" || mode === "clear") toast("Extreme GT 已从模块移除");
   else toast("已执行");
   return kv;
 }
@@ -3873,7 +3755,7 @@ async function runDiag(){
   logs.push(opLog().slice(-60).join("\n") || "(空)");
   if(eg.egLog){
     logs.push("");
-    logs.push("=== Extreme GT 异常日志 ===");
+    logs.push("=== 温度伪装日志（therm.sh）===");
     logs.push(eg.egLog.replace(/\|/g, "\n"));
   }
   logs.push("");
@@ -3958,7 +3840,6 @@ function aboutHTML(){
     <div class="section-head" style="margin-top:2px"><h2>内置组件</h2></div>
     <section class="card row-list">
       <div class="row"><span>Device Faker</span><strong>GPL-3.0 · Seyud</strong></div>
-      <div class="row"><span>Extreme GT</span><strong>嘟嘟ski &amp; AB · vAB-1.3.0</strong></div>
       <div class="row"><span>许可证与署名</span><strong>GPL-3.0 · NOTICE-*.txt</strong></div>
     </section>
     <p class="field-hint">Device Faker 以 GPL-3.0 分发，与本模块打包后整个组合作品同样受 GPL-3.0 约束。</p>
@@ -4895,55 +4776,71 @@ function thPaint(){
   put("thWall", [["44000","44℃"],["46000","46℃"],["48000","48℃"],["50000","50℃"]]
         .map(function(x){ return thChip("wall", x[0], x[1], st.wall || ""); }));
   const cyc = $("thCycle"); if(cyc && document.activeElement !== cyc) cyc.value = st.cycle || "";
+  const mb = $("thMaster");
+  if(mb){
+    const on = st.enabled === "1";
+    mb.textContent = on ? "总开关：开" : "总开关：关";
+    mb.style.background = on ? "var(--blue-soft)" : "";
+    mb.style.color = on ? "var(--blue)" : "";
+  }
+  const kb = $("thKeepBtn");
+  if(kb){
+    const on = st.keep === "1";
+    kb.textContent = on ? "保活：开" : "保活：关";
+    kb.style.background = on ? "var(--blue-soft)" : "";
+    kb.style.color = on ? "var(--blue)" : "";
+  }
   const s = $("thStat");
   if(s) s.textContent = "总开关 " + (st.enabled === "1" ? "开" : "关")
+    + " · 保活 " + (st.keep === "1" ? "开" : "关")
+    + (st.reverts && st.reverts !== "0" ? "（被改回 " + st.reverts + " 次）" : "")
     + " · 可写热区 " + (st.emul_zones || "?")
     + " · 电池节点 " + (st.batt_path || "—")
-    + " · 循环节点 " + (st.cycle_path || "—")
-    + " · 原值备份 " + (st.backup === "1" ? "有" : "无");
-  const cb = $("thCapsBtn"); if(cb) cb.onclick = thCaps;
-  const rs = $("thRestore"); if(rs) rs.onclick = async function(){
-    busy(true, "还原中…");
-    const out = await thRun("restore", 35000);
-    busy(false); thRaw(out);
-    toast(out.trim().split("\n").pop().slice(0,60)); thStatus();
-  };
-  const lg = $("thLogBtn"); if(lg) lg.onclick = async function(){
-    const out = await thRun("log 60", 25000);
-    openModal("温度伪装 · 日志", "/data/adb/ksu_toolbox/therm.log",
-      '<div class="logbox" style="max-height:60vh;white-space:pre-wrap">' + esc(out || "(空)") + '</div>',
-      '<button data-act="ok">关闭</button>');
-    $("modalFooter").querySelector('[data-act="ok"]').onclick = closeModal;
-  };
-  const cs = $("thCycleSave"); if(cs) cs.onclick = async function(){
-    const v = ($("thCycle").value || "").trim();
-    if(!/^[0-9]{1,5}$/.test(v)){ toast("填个 0-99999 的数字"); return; }
-    busy(true, "写入…");
-    const out = await thRun("cycle " + v, 30000);
-    busy(false); thRaw(out);
-    toast(out.indexOf("unsupported") >= 0 ? "这台机器不支持改循环次数" : ("已写入 " + v));
-    thStatus();
-  };
+    + " · 循环节点 " + (st.cycle_path || "—");
 }
 document.addEventListener("click", async function(ev){
-  const b = ev.target.closest("[data-th]");
-  if(!b) return;
-  const k = b.getAttribute("data-th"), v = b.getAttribute("data-thv");
-  const cmd = (k === "temp" ? "temp on " : k === "batt" ? "batt on " : k === "wall" ? "wall on " : "") + v;
-  if(!/^(temp|batt|wall) on /.test(cmd)) return;
-  busy(true, "写入中…");
-  const out = await thRun(cmd, 35000);
-  busy(false);
-  thRaw(out);
-  toast(out.indexOf("@@NOBIN") >= 0 ? "找不到 bin/therm.sh" : (out.indexOf("unsupported") >= 0 ? "这台机器不支持这个节点" : "已写入"));
-  thStatus();
+  // 先处理按钮（委托：元素由 thPaint 重建也不会丢绑定）
+  const btn = ev.target.closest("[data-thact]");
+  if(btn){
+    const act = btn.getAttribute("data-thact");
+    if(act === "refresh"){ thState().zonesAt = 0; await thZones(); thRaw("已刷新"); return; }
+    if(act === "log"){
+      const out = await thRun("log 60", 25000);
+      thRaw(out);
+      openModal("温度 · 日志", "/data/adb/ksu_toolbox/therm.log",
+        '<div class="logbox" style="max-height:60vh;white-space:pre-wrap">' + esc(out || "(空)") + '</div>',
+        '<button data-act="ok">关闭</button>');
+      $("modalFooter").querySelector('[data-act="ok"]').onclick = closeModal; return;
+    }
+    return;   // 其它动作（温度伪装）已删除
+  }
 });
-function thInit(){
+
+async function thZones(){
   const t = thState();
-  if(t.inited) return;
-  t.inited = true;
-  thPaint();
-  thStatus();
+  const now = Date.now();
+  if(t.zonesAt && now - t.zonesAt < 8000) return;   // 8 秒内不重复拉（89 个热区）
+  t.zonesAt = now;
+  const out = await thRun("zones", 30000);
+  const rows = [];
+  let hot = 0;
+  out.split("\n").forEach(function(L){
+    const p = L.split("|");
+    if(p.length < 3 || !p[0]) return;
+    const temp = parseInt(p[2], 10);
+    const c = isNaN(temp) ? "" : (temp >= 55000 ? ' style="color:var(--red)"' : (temp >= 45000 ? ' style="color:#e8a33d"' : ""));
+    if(!isNaN(temp) && temp >= 45000) hot++;
+    rows.push('<div class="row"><span>' + esc(p[0].replace("thermal_zone","z")) + ' · ' + esc(p[1]) + '</span><strong' + c + '>' + (isNaN(temp) ? "—" : (temp/1000).toFixed(1) + "℃") + '</strong></div>');
+  });
+  const el = $("thBody");
+  if(el) el.innerHTML = rows.length ? rows.join("") : '<div class="row"><span>状态</span><strong>没有读到热区</strong></div>';
+  const h = $("thHint"); if(h) h.textContent = rows.length ? (rows.length + " 个热区" + (hot ? " · " + hot + " 个偏热" : "")) : "只读";
+}
+function thInit(){
+  try{ thZones(); }catch(e){}
+  const t = thState();
+  const now = Date.now();
+  if(!t.lastStat || now - t.lastStat > 4000){ t.lastStat = now; thStatus(); }
 }
 
 /* ============================================================

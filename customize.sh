@@ -134,3 +134,16 @@ else
         case "$v" in 50|25) setprop "$k" "" 2>/dev/null; ui_print "- 清掉 EG 残留属性 $k";; esac
     done
 fi
+
+# ---------- 温度伪装的安全迁移 ----------
+# 历史上这个功能的"开机自动应用"进过 service.sh，而本机写热区节点会让
+# 热控卡死 → 系统重启 → 【开机就写 → 崩 → 重启】的死循环 ✗（作者实测）。
+# 所以安装/升级时：
+#   ① 从配置里【删掉 enabled/allow_write】→ 开机不会再自动写任何热区节点 ✓
+#   ② 清掉陈旧的还原记录与 pid
+TC=/data/adb/ksu_toolbox/therm.conf
+if [ -f "$TC" ]; then
+    grep -v '^enabled=' "$TC" | grep -v '^allow_write=' > "$TC.t" 2>/dev/null && mv "$TC.t" "$TC"
+    ui_print "- 已从温度伪装配置里移除开机自动应用（防止热控卡死引起重启循环）"
+fi
+rm -f /data/adb/ksu_toolbox/therm-orig /data/adb/ksu_toolbox/therm.pid /data/adb/ksu_toolbox/therm-reverts 2>/dev/null

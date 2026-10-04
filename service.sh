@@ -32,12 +32,10 @@ MODDIR=${0%/*}
         [ "$pe" = "1" ] && am start-foreground-service -n $PKG/.PerfService >/dev/null 2>&1
     fi
 
-    # 温度伪装（配置里开着才应用）
-    TH="$MODDIR/bin/therm.sh"
-    if [ -f "$TH" ]; then
-        te=$(grep -m1 '^enabled=' /data/adb/ksu_toolbox/therm.conf 2>/dev/null | cut -d= -f2)
-        [ "$te" = "1" ] && sh "$TH" temp on "$(grep -m1 '^cpu=' /data/adb/ksu_toolbox/therm.conf 2>/dev/null | cut -d= -f2)" >/dev/null 2>&1
-    fi
+    # 【注意】温度伪装【故意不在开机时应用】✗
+    # 作者实测：这台机器（OnePlus/OPPO 系）写热区节点会让热控守护进程卡死 → 系统重启 ✗，
+    # 一旦放进开机流程就会变成【开机就写 → 崩 → 重启】的死循环 ✗✗。
+    # 所以只允许在 WebUI/终端里手动执行，并且要显式解锁（见 therm.sh 的 need_allow）。
 
     # 刷新率保活（如果之前锁过刷新率）
     RF="$MODDIR/bin/refresh.sh"
