@@ -77,6 +77,7 @@ public class PerfService extends Service {
     private HudTitleView grip;           // 拖动把手（文字那层是触摸穿透的，拖不动）
     private WindowManager.LayoutParams gripLp;         // WebUI 里选的字号（0 = 还没读到，用视图默认）
     private int drift = 0;
+    private boolean dualOn = false;   // 双电芯：电流是单芯值 → 功耗 ×2
     private double fps2 = -1;
     private long frameN = 0, fpsBaseMs = 0;
     private final android.view.Choreographer.FrameCallback frameCb = new android.view.Choreographer.FrameCallback() {
@@ -336,6 +337,7 @@ public class PerfService extends Service {
             else if (k.equals("batt_uv")) battUv = v;
             else if (k.equals("temp")) tempC = v;
             else if (k.equals("drift")) drift = safeInt(v);
+            else if (k.equals("dual")) dualOn = v.trim().equals("1");
         }
         if (!listRaw.isEmpty()) for (String x : listRaw.split("\\|")) if (!x.trim().isEmpty()) ls.add(x);
         lines = ls;

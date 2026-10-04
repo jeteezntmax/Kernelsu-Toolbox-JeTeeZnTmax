@@ -321,6 +321,8 @@ check)
         cur=$(settings get system peak_refresh_rate 2>/dev/null | sed 's/\..*//')
         [ "$cur" != "$rr" ] && df=$((df+1))
     fi
+    # 双电芯：内核报的电流是单芯值 → App 那边算功耗时要 ×2
+    echo "dual=$(sed -n 's/^dual=//p' /data/adb/ksu_toolbox/batt.conf 2>/dev/null | head -n1)"
     echo "drift=$df"
     echo "reverts=$(cat "$BASE/reverts" 2>/dev/null | head -n1)"
     ;;

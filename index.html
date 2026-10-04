@@ -977,6 +977,7 @@ const PW_LINES = [
   'echo batt_design="$(cat /sys/class/power_supply/battery/charge_full_design 2>/dev/null)"',
   'echo batt_cycles="$(cat /sys/class/power_supply/battery/cycle_count 2>/dev/null)"',
   'echo batt_present="$(cat /sys/class/power_supply/battery/present 2>/dev/null)"',
+  'echo batt_dual="$(cut -d= -f2 /data/adb/ksu_toolbox/batt.conf 2>/dev/null | head -n1)"',
   'echo bms_current="$(cat /sys/class/power_supply/bms/current_now 2>/dev/null)"',
   'echo bms_voltage="$(cat /sys/class/power_supply/bms/voltage_now 2>/dev/null)"',
   'echo usb_online="$(cat /sys/class/power_supply/usb/online 2>/dev/null)"',
@@ -1615,7 +1616,7 @@ function powerHTML(){
         <path class="line" id="sparkPwLine" d="" style="stroke:var(--orange)"></path>
       </svg>
     </section>
-    <div class="section-head"><h2>电池详情</h2><span class="hint" id="pwHint">--</span></div>
+    <div class="section-head"><h2>电池详情</h2><span class="hint" id="pwHint">--</span><button class="chip-btn" id="pwDual" data-batt="dual">双电芯：关</button></div>
     <section class="card row-list" id="pwRows"></section>
     <div class="section-head"><h2>充电接口</h2></div>
     <section class="card row-list" id="chgRows"></section>
@@ -1659,13 +1660,21 @@ function updatePower(m){
   if(!m || state.tab !== "power") return;
   const cap = num(pick(m, ["batt_capacity"]));
   const status = pick(m, ["batt_status"]);
-  const curUA = battCurrentUA(pick(m, ["batt_current", "bms_current"]));
+  // 双电芯：内核报的 current_now / charge_* 都是【单芯值】→ 显示时 ×2
+  const dual = pick(m, ["batt_dual"]) === "1";
+  state.battDual = dual ? "1" : "0";
+  const mul = dual ? 2 : 1;
+  let curUA = battCurrentUA(pick(m, ["batt_current", "bms_current"]));
+  if(dual && curUA !== null) curUA = curUA * 2;
   const volUV = battVoltageUV(pick(m, ["batt_voltage", "bms_voltage"]));
   const watts = (curUA !== null && volUV !== null) ? Math.abs(curUA) / 1e6 * (volUV / 1e6) : null;
   const discharging = /discharg|not charg/i.test(status);
   const charging = !discharging && /charg|full/i.test(status);
-  const counter = num(pick(m, ["batt_counter"])), full = num(pick(m, ["batt_full"])), design = num(pick(m, ["batt_design"]));
-  const health = full && design ? (full / design * 100) : null;
+  const counter0 = num(pick(m, ["batt_counter"])), full0 = num(pick(m, ["batt_full"])), design0 = num(pick(m, ["batt_design"]));
+  const health = full0 && design0 ? (full0 / design0 * 100) : null;   // 比值，不受 ×2 影响
+  const counter = counter0 ? counter0 * mul : null;
+  const full = full0 ? full0 * mul : null;
+  const design = design0 ? design0 * mul : null;
   const fullMah = full ? full / 1000 : (design ? design / 1000 : 0);
 
   setTxt("pwMark", charging ? "⚡" : discharging ? "↓" : "•");
@@ -1700,7 +1709,13 @@ function updatePower(m){
   const avg = h.length ? h.reduce((a,b)=>a+b,0)/h.length : 0;
   setTxt("sparkPwInfo", h.length ? `峰值 ${Math.max.apply(null, h).toFixed(2)}W · 均值 ${avg.toFixed(2)}W · ${h.length} 点` : "采样中…");
 
-  setTxt("pwHint", health ? "健康度约 " + health.toFixed(1) + "%" : "实时采样");
+  setTxt("pwHint", (health ? "健康度约 " + health.toFixed(1) + "%" : "实时采样") + (dual ? " · 双电芯已×2" : ""));
+  const db = $("pwDual");
+  if(db){
+    db.textContent = dual ? "双电芯：开" : "双电芯：关";
+    db.style.background = dual ? "var(--blue-soft)" : "";
+    db.style.color = dual ? "var(--blue)" : "";
+  }
   $("pwRows").innerHTML = [
     ["状态", status || "--"],
     ["电量", cap === null ? "--" : cap + " %"],
@@ -4799,6 +4814,16 @@ function thPaint(){
     + " · 循环节点 " + (st.cycle_path || "—");
 }
 document.addEventListener("click", async function(ev){
+  const bt = ev.target.closest("[data-batt]");
+  if(bt){
+    const next = (state.battDual === "1") ? "0" : "1";
+    busy(true, "切换中…");
+    try{ await sh("mkdir -p /data/adb/ksu_toolbox; printf 'dual=" + next + "\\n' > /data/adb/ksu_toolbox/batt.conf; echo ok", 15000); }catch(e){}
+    busy(false);
+    toast(next === "1" ? "已按双电芯显示（电流 / 容量 ×2）" : "已按单电芯显示");
+    try{ await refresh(); }catch(e){}   // 全局轮询入口
+    return;
+  }
   // 先处理按钮（委托：元素由 thPaint 重建也不会丢绑定）
   const btn = ev.target.closest("[data-thact]");
   if(btn){
