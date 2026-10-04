@@ -71,7 +71,9 @@ public class PerfService extends Service {
     private String hudTitle = "";      // 最上面那行自定义标题（%s = 启用/停用）
     private float fontSp = 0f;
     private boolean hudMuted = false;   // 双击音量键临时关掉提示悬浮窗
-    private String hudErr = null;       // 加不上窗口的原因（排错用，会显示在提示里）         // WebUI 里选的字号（0 = 还没读到，用视图默认）
+    private String hudErr = null;       // 加不上窗口的原因（排错用，会显示在提示里）
+    private HudGripView grip;           // 拖动把手（文字那层是触摸穿透的，拖不动）
+    private WindowManager.LayoutParams gripLp;         // WebUI 里选的字号（0 = 还没读到，用视图默认）
     private int drift = 0;
     private double fps2 = -1;
     private long frameN = 0, fpsBaseMs = 0;
@@ -244,6 +246,7 @@ public class PerfService extends Service {
         ui.removeCallbacks(hudTick);
         ui.removeCallbacksAndMessages(null);
         hideMenu();
+        removeGrip();
         if (hud != null && wm != null) { try { wm.removeView(hud); } catch (Exception ignored) { } }
         hud = null;
         try { stopForeground(true); } catch (Exception ignored) { }
@@ -417,6 +420,7 @@ public class PerfService extends Service {
                 WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, type,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
@@ -439,6 +443,7 @@ public class PerfService extends Service {
         try {
             wm.addView(hud, hudLp);
             hudErr = null;
+            ui.postDelayed(new Runnable() { public void run() { ensureGrip(); updateHudLayout(); } }, 60);
         } catch (Exception e) {
             hudErr = "加不上窗口：" + e;
             hud = null;
@@ -544,29 +549,92 @@ public class PerfService extends Service {
                 applyHudPos();
                 wm.updateViewLayout(hud, hudLp);
                 refreshHud();
+                syncGripPos();
+                if (grip != null && gripLp != null) { try { wm.updateViewLayout(grip, gripLp); } catch (Exception ignored) { } }
+                updateHudLayout();
             }
         } catch (Exception ignored) { }
     }
 
+    /* ---------- 拖动把手 + 象限排版 ---------- */
+
+    private void ensureGrip() {
+        if (grip != null || wm == null || hudLp == null) return;
+        grip = new HudGripView(this);
+        int type = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                : WindowManager.LayoutParams.TYPE_PHONE;
+        gripLp = new WindowManager.LayoutParams(dp(24), dp(24), type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                        | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT);
+        gripLp.gravity = Gravity.TOP | Gravity.END;
+        syncGripPos();
+        grip.setDragHost(new HudGripView.DragHost() {
+            private long lastSave = 0;
+            public void onDrag(int dx, int dy) {
+                hudLp.x -= dx;                 // Gravity.END：往右拖 = x 变小
+                hudLp.y += dy;
+                if (hudLp.x < 0) hudLp.x = 0;
+                if (hudLp.y < 0) hudLp.y = 0;
+                syncGripPos();
+                try { if (hud != null) wm.updateViewLayout(hud, hudLp); } catch (Exception ignored) { }
+                try { wm.updateViewLayout(grip, gripLp); } catch (Exception ignored) { }
+                updateHudLayout();
+                long now = System.currentTimeMillis();
+                if (now - lastSave > 600) { lastSave = now; saveHudPos(); }
+            }
+        });
+        try { wm.addView(grip, gripLp); } catch (Exception e) { grip = null; }
+    }
+
+    private void removeGrip() {
+        if (grip != null && wm != null) { try { wm.removeView(grip); } catch (Exception ignored) { } }
+        grip = null;
+    }
+
+    private void syncGripPos() {
+        if (gripLp == null || hudLp == null) return;
+        int w = (hud != null && hud.getWidth() > 0) ? hud.getWidth() : dp(90);
+        gripLp.x = Math.max(0, hudLp.x + w - dp(20));
+        gripLp.y = Math.max(0, hudLp.y - dp(1));
+    }
+
+    /** 按【当前屏幕】所在象限决定排版（横竖屏都会重算） */
+    private void updateHudLayout() {
+        if (hud == null || hudLp == null) return;
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        int sw = dm.widthPixels, sh = dm.heightPixels;
+        int w = (hud.getWidth() > 0) ? hud.getWidth() : dp(90);
+        int h = (hud.getHeight() > 0) ? hud.getHeight() : dp(60);
+        int leftPx = sw - hudLp.x - w;
+        boolean alignRight = (leftPx + w / 2) > sw / 2;
+        boolean topHalf = (hudLp.y + h / 2) < sh / 2;
+        hud.setLayoutMode(alignRight, topHalf);
+    }
+
     private void refreshHud() {
         if (hud == null) return;
-        // 总开关关了 → 提示悬浮窗也跟着关（作者要求）
         boolean on = !"0".equals(hudOn) && "1".equals(enabled) && !hudMuted;
         ArrayList<String> use = new ArrayList<String>();
         if (applied == 1 && !lines.isEmpty()) use.addAll(lines); else use.addAll(cfgLines);
         use.addAll(sysLines());
-        // 功能行 + 系统参数行：按字数从多到少（作者定的规则），标题不参与排序、永远在最上面
         java.util.Collections.sort(use, new java.util.Comparator<String>() {
             public int compare(String a, String b) { return b.length() - a.length(); }
         });
-        if (!use.isEmpty() || true) use.add(0, titleLine());
+        use.add(0, titleLine());
         try {
             if (on) {
                 hud.setTitleMode(true);
                 hud.setVisibility(View.VISIBLE);
                 hud.setLines(use);
+                ensureGrip();
+                updateHudLayout();
             } else {
                 hud.setVisibility(View.GONE);
+                removeGrip();
             }
         } catch (Exception ignored) { }
     }

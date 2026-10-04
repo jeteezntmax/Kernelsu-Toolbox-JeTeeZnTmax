@@ -32,6 +32,8 @@ public class FeatureHudView extends View {
     private final Paint pTitle = new Paint(Paint.ANTI_ALIAS_FLAG);   // 最上面那行自定义标题
     private float hueBase = 0f;          // 彩虹渐变起始色相
     private boolean titleMode = false;   // 第一行是"标题"（画得大一点）
+    private boolean alignRight = false;  // 在屏幕右半边 → 靠右对齐
+    private boolean topHalf = true;      // 在屏幕上半边 → 从上到下越来越小
     private final Handler h = new Handler(Looper.getMainLooper());
     /** 让彩虹一直闪：每 50ms 色相往前挪一点（约 11 秒一圈），只在可见时跑 */
     private final Runnable tick = new Runnable() {
@@ -102,6 +104,31 @@ public class FeatureHudView extends View {
 
     public void setTitleMode(boolean on) { titleMode = on; }
 
+    /**
+     * 位置决定排版：
+     *   上半屏 → 从上到下字号越来越小；下半屏 → 越来越大
+     *   左半边 → 靠左对齐；右半边 → 靠右对齐
+     * 位置是按【当前屏幕尺寸】算的，所以横竖屏切换后由外面重新算一遍传进来。
+     */
+    public void setLayoutMode(boolean alignRight, boolean topHalf) {
+        if (this.alignRight == alignRight && this.topHalf == topHalf) return;
+        this.alignRight = alignRight;
+        this.topHalf = topHalf;
+        requestLayout();
+        invalidate();
+    }
+
+    /** 第 i 行的字号比例（最大那行是 1.0，最小 0.62） */
+    private float scaleOf(int i, int n) {
+        if (n <= 1) return 1f;
+        float k = 0.38f * i / (n - 1);
+        return topHalf ? (1f - k) : (0.62f + k);
+    }
+
+    private float lineH(float base, int i, int n) {
+        return base * scaleOf(i, n) * 1.95f;
+    }
+
     public void setLines(ArrayList<String> ls) {
         lines.clear();
         if (ls != null) for (String s : ls) if (s != null && !s.trim().isEmpty()) lines.add(s.trim());
@@ -112,35 +139,47 @@ public class FeatureHudView extends View {
     @Override
     protected void onMeasure(int wSpec, int hSpec) {
         int maxW = getResources().getDisplayMetrics().widthPixels - (int) dp(12);
-        float w = dp(20);
+        int n = Math.max(lines.size(), 1);
+        float w = dp(20), h = pad * 2;
         for (int i = 0; i < lines.size(); i++) {
-            Paint pp = (i == 0 && titleMode) ? pTitle : pTx;
-            w = Math.max(w, pp.measureText(lines.get(i)) + pad * 2);
+            float sc = scaleOf(i, n);
+            boolean title = (i == 0 && titleMode);
+            float fs = textSize * sc * (title ? 1.12f : 1f);
+            Paint pp = title ? pTitle : pTx;
+            pp.setTextSize(fs);
+            w = Math.max(w, pp.measureText(lines.get(i)) + pad * 2 + dp(6));
+            h += lineH(textSize, i, n) + (title ? dp(2) : 0);
         }
-        int h = (int) (pad * 2 + rowH * Math.max(lines.size(), 1) + (titleMode ? dp(3) : 0));
-        setMeasuredDimension(resolveSize((int) Math.min(w, maxW), wSpec), resolveSize(h, hSpec));
+        setMeasuredDimension(resolveSize((int) Math.min(w, maxW), wSpec), resolveSize((int) h, hSpec));
     }
 
     @Override
     protected void onDraw(Canvas cv) {
         if (lines.isEmpty()) return;
-        float y = pad + rowH * 0.72f;
+        float W = getWidth(), y = pad;
+        int n = lines.size();
         float[] hsv = new float[3];
-        for (int i = 0; i < lines.size(); i++) {
+        for (int i = 0; i < n; i++) {
             String s = lines.get(i);
-            Paint pp = (i == 0 && titleMode) ? pTitle : pTx;
+            boolean title = (i == 0 && titleMode);
+            float sc = scaleOf(i, n);
+            float fs = textSize * sc * (title ? 1.12f : 1f);
+            Paint pp = title ? pTitle : pTx;
+            pp.setTextSize(fs);
+            float rowH = lineH(textSize, i, n) + (title ? dp(2) : 0);
             float tw = pp.measureText(s);
-            /* 一行一条彩虹：色相按行往右偏，行内再从左到右渐变 */
-            hsv[0] = (hueBase + i * 26f) % 360f;   // 每行错开，整列像彩带
+            float x = alignRight ? Math.max(pad, W - pad - tw) : pad;
+            float base = y + rowH * 0.72f;
+            hsv[0] = (hueBase + i * 26f) % 360f;
             hsv[1] = 0.80f;
             hsv[2] = 1f;
             int c1 = Color.HSVToColor(hsv);
             hsv[0] = (hsv[0] + 46f) % 360f;
             int c2 = Color.HSVToColor(hsv);
-            pp.setShader(new LinearGradient(pad, 0, pad + tw, 0, c1, c2, Shader.TileMode.CLAMP));
-            cv.drawText(s, pad, y, pp);
+            pp.setShader(new LinearGradient(x, 0, x + tw, 0, c1, c2, Shader.TileMode.CLAMP));
+            cv.drawText(s, x, base, pp);
             pp.setShader(null);
-            y += (i == 0 && titleMode) ? rowH + dp(3) : rowH;
+            y += rowH;
         }
     }
 
