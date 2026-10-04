@@ -4,12 +4,11 @@
 #  内含三部分：
 #    1. 工具箱 WebUI（本模块自己）
 #    2. Device Faker 引擎（GPL-3.0，见 NOTICE-device_faker.txt）
-#    3. Extreme GT 去温控（作者 嘟嘟ski & AB，见 NOTICE-extreme-gt.txt）
 # ============================================================
 
 ui_print "=========================================="
 ui_print " 系统工具箱"
-ui_print " 含 Device Faker 引擎 + Extreme GT"
+ui_print " 含 Device Faker 引擎"
 ui_print "=========================================="
 
 # ---------- 1. Device Faker 数据目录 ----------
@@ -32,40 +31,17 @@ else
 fi
 rm -f "$MODPATH/df-default-config.toml"
 
-# ---------- 2. Extreme GT 数据目录 ----------
-EG_DIR=/data/adb/ksu_toolbox
-EG_CFG=$EG_DIR/eg.txt
-
-ui_print "- 准备 Extreme GT 配置"
-mkdir -p "$EG_DIR"
-chmod 755 "$EG_DIR"
-if [ -f "$EG_CFG" ]; then
-    ui_print "- 已有 EG 配置，保留不动"
-else
-    cat > "$EG_CFG" <<'EOF'
-enabled=1
-xml=1
-emul=1
-gpu=1
-touch=1
-horae=1
-EOF
-    chmod 644 "$EG_CFG"
-    ui_print "- 已写入默认 EG 配置（默认全开）"
-fi
+# ---------- 2. 数据目录 ----------
+DATA_DIR=/data/adb/ksu_toolbox
+mkdir -p "$DATA_DIR"
+chmod 755 "$DATA_DIR"
 
 # 铺一份默认任务表 —— 这样浏览器模式一装完就有数据，
 # 不需要先在 KernelSU 里打开一次 WebView。页面打开后会用最新的覆盖它。
 if [ -f "$MODPATH/tasks.default.txt" ]; then
-    cp -f "$MODPATH/tasks.default.txt" "$EG_DIR/tasks.txt"
-    chmod 644 "$EG_DIR/tasks.txt"
+    cp -f "$MODPATH/tasks.default.txt" "$DATA_DIR/tasks.txt"
+    chmod 644 "$DATA_DIR/tasks.txt"
     ui_print "- 已铺设离线数据任务表"
-fi
-
-# ---------- 3. 生成去温控配置 ----------
-if [ -f "$MODPATH/eg-setup.sh" ]; then
-    # MODPATH 不是环境变量，必须显式传过去
-    MODPATH="$MODPATH" sh "$MODPATH/eg-setup.sh"
 fi
 
 # ---------- 4. Zygisk 检查（不中断） ----------
@@ -141,3 +117,20 @@ ui_print "   QQ 群   1102902791"
 ui_print "   协议    GPL-3.0（含 Device Faker，见 NOTICE-*.txt）"
 ui_print "  ─────────────────────────────"
 ui_print " "
+
+# ---------- 清理 Extreme GT 残留 ----------
+# EG 已经从模块里删掉了，但它当年写过的两个 persist 温控属性会留在设备上，
+# 这里按记录的原值还原；没有记录就把它们清空（回到 ROM 默认）。
+if [ -f /data/adb/ksu_toolbox/eg-orig.props ]; then
+    while IFS='=' read -r k v; do
+        [ -n "$k" ] || continue
+        if [ -n "$v" ]; then setprop "$k" "$v" 2>/dev/null; else setprop "$k" "" 2>/dev/null; fi
+    done < /data/adb/ksu_toolbox/eg-orig.props
+    rm -f /data/adb/ksu_toolbox/eg-orig.props
+    ui_print "- 已还原 Extreme GT 改过的温控属性"
+else
+    for k in persist.sys.oplus.wifi.sla.game_high_temperature persist.sys.environment.temp; do
+        v=$(getprop "$k" 2>/dev/null)
+        case "$v" in 50|25) setprop "$k" "" 2>/dev/null; ui_print "- 清掉 EG 残留属性 $k";; esac
+    done
+fi

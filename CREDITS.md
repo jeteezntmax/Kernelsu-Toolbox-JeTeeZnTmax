@@ -29,22 +29,6 @@
 
 ---
 
-## 二、Extreme GT（**本仓库内有修改版**）
-
-- 原名：**Extreme GT vAB-1.3.0**
-- 作者：**嘟嘟ski & AB**
-- 二改版：无损去温控
-
-本仓库中来自 Extreme GT 的文件：
-
-```
-eg.sh
-eg-setup.sh                              ← 本人只修了两个 bug
-sys_thermal_control_config_default.xml
-```
-
-**本人对这三个文件不主张任何权利**，它们归原作者所有，
-不适用本仓库的 LICENSE。使用 / 修改 / 分发请遵循原作者的要求。
 
 ### 对本人的修改说明
 

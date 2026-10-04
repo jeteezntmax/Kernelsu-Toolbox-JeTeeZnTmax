@@ -1,6 +1,32 @@
 # 更新日志
 
+## v3.4.17
+
+### 移除 Extreme GT（去温控）整套
+
+那部分 bug 太多、也不值得继续折腾，按作者要求**整套删掉**：
+
+**删掉的文件**
+`eg-setup.sh` · `bin/eg.sh` · `sys_thermal_control_config_default.xml` · `NOTICE-extreme-gt.txt`
+（仓库里也一起删了，包括根目录那份漏删的 `eg.sh`）
+
+**清理掉的引用**
+- `service.sh`：不再调用 `eg.sh bootcheck/early/late`（开机只拉游戏加速 / 刷新率保活 / HTTP 服务）
+- `customize.sh`：不再生成 EG 配置、不再跑 `eg-setup.sh`
+- `module.prop` 描述、`CREDITS.md`、README 里的 EG 小节与署名 → 一并去掉
+
+**WebUI「温度」页重做**
+原来那页其实就是 EG 的控制面板（XML 覆盖 / emul_temp 白名单 / GPU 满档 / 触摸 renice）。
+现在**只保留只读的热区温度显示**，EG 那套控件整段删除 ✓
+
+**顺带清理老用户的残留**
+EG 当年写过的两个 `persist.*` 温控属性会留在设备上 ✗ —— 安装脚本现在会：
+有原值记录（`eg-orig.props`）就还原，没有就判断是不是 EG 写的那组值（50 / 25），是就清掉 ✓
+
+> 卸载脚本里对应的还原逻辑保留（老用户卸载时依然能清干净）。
+
 ## v3.4.16
+
 
 ### 按第三方审查报告收尾剩下的 P1
 

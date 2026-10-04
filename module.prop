@@ -1,7 +1,7 @@
 id=ksu_toolbox
 name=Kernelsu工具箱_JeTeeZnTmax
-version=v3.4.16
-versionCode=30416
+version=v3.4.17
+versionCode=30417
 author=@JeTeeZnTmax
-description=JeTeeZnTmax：受保护的执行(ptrace拦截) + 应用/进程管理 + Device Faker 机型伪装 + Extreme GT 去温控 + 刷新率锁定 + 游戏加速(音量键菜单) · 含独立桌面 App + 迷你监视器悬浮窗
+description=JeTeeZnTmax：受保护的执行(ptrace拦截) + 应用/进程管理 + Device Faker 机型伪装 + 刷新率锁定 + 游戏加速(音量键菜单) · 含独立桌面 App + 迷你监视器悬浮窗
 updateJson=https://cdn.jsdelivr.net/gh/jeteezntmax/Kernelsu-Toolbox-JeTeeZnTmax@main/update.json

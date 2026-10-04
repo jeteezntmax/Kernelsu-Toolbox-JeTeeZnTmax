@@ -3386,24 +3386,16 @@ function demoThermalDyn(){
 
 /* ---------- 界面 ---------- */
 function thermalHTML(){
+  // 【Extreme GT 已从模块移除】
+  // 原来的温度页是 EG 的控制面板（XML 覆盖 / emul_temp / GPU 满档 / 触摸 renice …），
+  // 那套连同后端 bin/eg.sh、eg-setup.sh 一起删掉了 —— EG 相关的 bug 太多，作者决定不折腾它。
+  // 这页现在只保留【只读的热区温度显示】（下面的 #thBody 由原有的渲染逻辑填充）。
   return `<div class="view">
-    <section class="card hero">
-      <div class="hero-mark" id="thMark">℃</div>
-      <div class="hero-body">
-        <strong id="thBig">读取中…</strong>
-        <span id="thSub">正在枚举 thermal zone</span>
-        <div class="chips"><i class="chip" id="thCount">--</i></div>
-      </div>
+    <div class="section-head"><h2>温度</h2>${backBtn()}</div>
+    <section class="card row-list" id="thBody">
+      <div class="row"><span>状态</span><strong>读取中…</strong></div>
     </section>
-    <div class="metric-grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-      <div class="metric-card" style="min-height:72px;padding:12px"><span>CPU</span><strong class="sm" id="tccpu">--</strong></div>
-      <div class="metric-card" style="min-height:72px;padding:12px"><span>GPU</span><strong class="sm" id="tcgpu">--</strong></div>
-      <div class="metric-card" style="min-height:72px;padding:12px"><span>电池</span><strong class="sm" id="tcbatt">--</strong></div>
-      <div class="metric-card" style="min-height:72px;padding:12px"><span>内存</span><strong class="sm" id="tcmem">--</strong></div>
-      <div class="metric-card" style="min-height:72px;padding:12px"><span>其他</span><strong class="sm" id="tcother">--</strong></div>
-      <div class="metric-card" style="min-height:72px;padding:12px"><span>zone</span><strong class="sm" id="tcnum">--</strong></div>
-    </div>
-    <div id="thBody" style="display:flex;flex-direction:column;gap:12px"></div>
+    <p class="field-hint">各热区当前温度（只读）。去温控那套（Extreme GT）已从模块移除。</p>
   </div>`;
 }
 function zoneRowsHTML(ztypes){
