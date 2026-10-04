@@ -197,7 +197,12 @@ public class PerfService extends Service {
             ui.post(new Runnable() { public void run() {
                 hudMuted = !hudMuted;
                 refreshHud();
-                toastMsg("功能悬浮窗：" + (hudMuted ? "关（再双击开回来）" : "开"));
+                String tip;
+                if (hudMuted) tip = "功能悬浮窗：关（再双击开回来）";
+                else if ("0".equals(hudOn)) tip = "功能悬浮窗：开，但设置里把它关了";
+                else if (!"1".equals(enabled)) tip = "功能悬浮窗：开，但总开关没开（所以看不到）";
+                else tip = "功能悬浮窗：开";
+                toastMsg(tip);
             }});
             return START_STICKY;
         }

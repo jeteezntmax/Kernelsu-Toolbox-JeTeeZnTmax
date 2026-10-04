@@ -5061,6 +5061,99 @@ function gaAppsList(){
   return list.split(",").map(x => x.trim()).filter(Boolean);
 }
 
+/* ---- 游戏加速卡片的几个控件（v3.4.2 被我误删过一次，这里补回来）---- */
+const GA_ITEMS = [["time","时间"],["cpu","CPU 频率"],["fps","FPS"],["power","功耗"],["temp","温度"]];
+function gaItemsOn(){
+  const p = gaState();
+  const raw = (p.cfg.hud_items || "").trim();
+  if(!raw) return GA_ITEMS.map(x => x[0]);            // 没配过 = 全显示
+  return raw.split(",").map(x => x.trim()).filter(Boolean);
+}
+function gaHudItemsPaint(){
+  const host = $("gaHudItems"); if(!host) return;
+  const on = gaItemsOn();
+  host.innerHTML = GA_ITEMS.map(function(it){
+    const k = it[0], hot = on.indexOf(k) >= 0;
+    return '<button class="chip-btn" data-hi="' + k + '"' + (hot ? ' style="background:var(--blue-soft);color:var(--blue)"' : '') + '>' + it[1] + (hot ? " ✓" : "") + '</button>';
+  }).join("");
+  host.querySelectorAll("[data-hi]").forEach(function(b){
+    b.onclick = function(){
+      const k = b.dataset.hi;
+      let list = gaItemsOn();
+      if(list.indexOf(k) >= 0) list = list.filter(x => x !== k); else list.push(k);
+      list.sort(function(a, b2){ return GA_ITEMS.findIndex(x => x[0] === a) - GA_ITEMS.findIndex(x => x[0] === b2); });
+      gaSet("hud_items", list.join(","));
+    };
+  });
+}
+function gaTitlePaint(){
+  const p = gaState(), el = $("gaTitle");
+  if(el){
+    el.placeholder = "KSU工具箱-游戏加速：%s";
+    if(document.activeElement !== el) el.value = p.cfg.hud_title || "";
+  }
+  const b = $("gaTitleSave");
+  if(b) b.onclick = function(){ gaSet("hud_title", ($("gaTitle").value || "").trim()); toast("标题已保存"); };
+}
+function gaFontPaint(){
+  const host = $("gaFont"); if(!host) return;
+  const cur = String(gaState().cfg.font || "12");
+  host.innerHTML = ["10","12","14","16","18"].map(function(v){
+    return '<button class="chip-btn" data-fs="' + v + '"' + (v === cur ? ' style="background:var(--blue-soft);color:var(--blue)"' : '') + '>' + v + (v === cur ? " ✓" : "") + '</button>';
+  }).join("");
+  host.querySelectorAll("[data-fs]").forEach(function(b){
+    b.onclick = function(){ gaSet("font", b.dataset.fs); };
+  });
+}
+function gaWlList(){ return (gaState().cfg.whitelist || "").split(",").map(x => x.trim()).filter(Boolean); }
+function gaWlPaint(){
+  const b = $("gaWlPick");
+  if(b){ b.textContent = "选择应用（已选 " + gaWlList().length + " 个）"; b.onclick = gaWlPick; }
+  const c = $("gaWlClear");
+  if(c) c.onclick = function(){ gaSet("whitelist", ""); toast("白名单已清空（目标应用仍然自动保护）"); };
+}
+async function gaWlPick(){
+  if(thermalState().demo){ toast("演示模式：未执行"); return; }
+  let list = [];
+  try{
+    const r = await sh('pm list packages -3 2>/dev/null | sed "s/^package://"', 40000);
+    list = String(r.stdout || "").split("\n").map(x => x.trim()).filter(Boolean).sort();
+  }catch(e){ toast("读不到应用列表"); return; }
+  if(!list.length){ toast("没有第三方应用"); return; }
+  let labels = {};
+  try{ const pi = packagesInfo(list.slice(0,400)); if(pi) pi.forEach(x => { labels[x.packageName] = x.appLabel || ""; }); }catch(e){}
+  const cur = gaWlList();
+  const rows = list.map(pk => '<button class="pk-item' + (cur.indexOf(pk) >= 0 ? ' sel' : '') + '" data-wlp="' + esc(pk) + '">' +
+      '<div class="n"><strong>' + esc(labels[pk] || pk) + '</strong><span>' + esc(pk) + '</span></div>' +
+      '<div class="ck">✓</div></button>').join("");
+  openModal("清后台白名单", "不选 = 谁都可以被清",
+    '<div class="modal-search"><input class="modern-input" id="gaWlSearch" placeholder="搜应用名或包名…" autocomplete="off" spellcheck="false"></div>' +
+    '<div class="row-list" id="gaWlList">' + rows + '</div>',
+    '<button data-act="ok">保存</button><button data-act="c">取消</button>');
+  const sel = {};
+  cur.forEach(function(k){ sel[k] = 1; });
+  $("gaWlList").addEventListener("click", function(ev){
+    const b = ev.target.closest(".pk-item");
+    if(!b) return;
+    const pk = b.getAttribute("data-wlp");
+    if(sel[pk]) delete sel[pk]; else sel[pk] = 1;
+    if(sel[pk]) b.classList.add("sel"); else b.classList.remove("sel");
+  });
+  const se = $("gaWlSearch");
+  se.addEventListener("input", function(){
+    const q = se.value.trim().toLowerCase();
+    document.querySelectorAll("#gaWlList .pk-item").forEach(function(el){
+      el.style.display = (!q || el.textContent.toLowerCase().indexOf(q) >= 0) ? "" : "none";
+    });
+  });
+  $("modalFooter").querySelector('[data-act="c"]').onclick = closeModal;
+  $("modalFooter").querySelector('[data-act="ok"]').onclick = async function(){
+    const arr = Object.keys(sel).sort();
+    closeModal();
+    await gaSet("whitelist", arr.join(","));
+    toast("白名单已保存（" + arr.length + " 个）");
+  };
+}
 function gaInit(){
   // 先把控件画出来 —— 之前只在"配置读成功"后才画，
   // 读失败就整片空白，看着像功能没做 ✗

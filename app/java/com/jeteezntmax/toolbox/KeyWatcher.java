@@ -21,7 +21,7 @@ import android.view.accessibility.AccessibilityEvent;
  */
 public class KeyWatcher extends AccessibilityService {
 
-    private static final long DBL_MS = 320;      // 双击判定窗口
+    private static final long DBL_MS = 450;      // 双击判定窗口（320 太紧，作者说"要卡微妙时机"）
     private final Handler h = new Handler(Looper.getMainLooper());
     private long lastDown = 0;
     private boolean dblWait = false, pendingIsUp = false;
