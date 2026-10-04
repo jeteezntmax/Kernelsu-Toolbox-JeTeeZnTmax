@@ -40,6 +40,7 @@ public class PerfService extends Service {
     public static final String ACTION_STOP = "com.jeteezntmax.toolbox.STOP_PERF";
     public static final String ACTION_MENU = "com.jeteezntmax.toolbox.SHOW_PERF_MENU";
     public static final String ACTION_HIDE_MENU = "com.jeteezntmax.toolbox.HIDE_PERF_MENU";
+    public static final String ACTION_TOGGLE_HUD = "com.jeteezntmax.toolbox.TOGGLE_PERF_HUD";
     private static final int NOTI_ID = 0x4A57;
     private static final String CH_ID = "jeteez_perf";
     private static final String PREF = "perfhud";
@@ -64,10 +65,11 @@ public class PerfService extends Service {
         return "";
     }
 
-    private String app = "", uid = "", enabled = "0", menuOn = "1", hudOn = "1";
+    private String app = "", apps = "", fapp = "", uid = "", enabled = "0", menuOn = "1", hudOn = "1";
     private String hudItems = "", cpuKhz = "", cpuMax = "", battUa = "", battUv = "", tempC = "";
     private String hudTitle = "";      // 最上面那行自定义标题（%s = 启用/停用）
-    private float fontSp = 0f;         // WebUI 里选的字号（0 = 还没读到，用视图默认）
+    private float fontSp = 0f;
+    private boolean hudMuted = false;   // 双击音量键临时关掉提示悬浮窗         // WebUI 里选的字号（0 = 还没读到，用视图默认）
     private int drift = 0;
     private double fps2 = -1;
     private long frameN = 0, fpsBaseMs = 0;
@@ -99,6 +101,14 @@ public class PerfService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) c.startForegroundService(i);
         else c.startService(i);
     }
+    /** 双击音量键：临时开关"功能提示悬浮窗"（不动配置，服务重启恢复） */
+    public static void toggleHud(Context c) {
+        Intent i = new Intent(c, PerfService.class);
+        i.setAction(ACTION_TOGGLE_HUD);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) c.startForegroundService(i);
+        else c.startService(i);
+    }
+
     /** 音量下键：收起菜单 */
     public static void hideMenu(Context c) {
         Intent i = new Intent(c, PerfService.class);
@@ -183,6 +193,14 @@ public class PerfService extends Service {
             }}).start();
             return START_STICKY;
         }
+        if (intent != null && ACTION_TOGGLE_HUD.equals(intent.getAction())) {
+            ui.post(new Runnable() { public void run() {
+                hudMuted = !hudMuted;
+                refreshHud();
+                toastMsg("功能悬浮窗：" + (hudMuted ? "关（再双击开回来）" : "开"));
+            }});
+            return START_STICKY;
+        }
         if (intent != null && ACTION_HIDE_MENU.equals(intent.getAction())) {
             ui.post(new Runnable() { public void run() { hideMenu(); } });
             return START_STICKY;
@@ -258,6 +276,8 @@ public class PerfService extends Service {
             if (i <= 0) continue;
             String k = L.substring(0, i).trim(), v = L.substring(i + 1).trim();
             if (k.equals("app")) app = v;
+            else if (k.equals("apps")) apps = v;
+            else if (k.equals("fapp")) fapp = v;
             else if (k.equals("uid")) uid = v;
             else if (k.equals("enabled")) enabled = v;
             else if (k.equals("menu")) menuOn = v;
@@ -437,7 +457,7 @@ public class PerfService extends Service {
     private void refreshHud() {
         if (hud == null) return;
         // 总开关关了 → 提示悬浮窗也跟着关（作者要求）
-        boolean on = !"0".equals(hudOn) && "1".equals(enabled);
+        boolean on = !"0".equals(hudOn) && "1".equals(enabled) && !hudMuted;
         ArrayList<String> use = new ArrayList<String>();
         if (applied == 1 && !lines.isEmpty()) use.addAll(lines); else use.addAll(cfgLines);
         use.addAll(sysLines());
@@ -579,6 +599,15 @@ public class PerfService extends Service {
     private final HashMap<String, ArrayList<String>> rowOpts = new HashMap<String, ArrayList<String>>();
 
     /** 把当前值/候选值拼成菜单要的 rows */
+    /** 菜单里显示的目标（多目标时显示"第一个 等 N 个"） */
+    private String appsLabel() {
+        String list = (apps == null || apps.trim().isEmpty()) ? fapp : apps.trim();
+        if (list == null || list.isEmpty()) return "";
+        String[] a = list.split(",");
+        if (a.length == 1) return a[0].trim();
+        return a[0].trim() + " 等 " + a.length + " 个";
+    }
+
     private void buildRows() {
         rows = new ArrayList<String[]>();
         rows.add(new String[]{"freq", "CPU 锁频", disp("freq", curFreq), join(rowOpts.get("freq"))});
@@ -586,7 +615,7 @@ public class PerfService extends Service {
         rows.add(new String[]{"affinity", "线程绑定", affDisp(curAff), join(rowOpts.get("aff"))});
         rows.add(new String[]{"refresh", "刷新率", curRr == null || curRr.isEmpty() || "0".equals(curRr) ? "不动" : curRr + "Hz", join(rowOpts.get("rr"))});
         if (menu != null) {
-            menu.setApp(app);
+            menu.setApp(appsLabel());
             menu.setEnabled("1".equals(enabled));
             menu.setRows(rows);
         }

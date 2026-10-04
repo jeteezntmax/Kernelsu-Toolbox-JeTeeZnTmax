@@ -9,8 +9,9 @@
 #
 #  配置：/data/adb/ksu_toolbox/perf/profile.conf（WebUI 和音量键菜单都写它）
 #    enabled=1          总开关
-#    app=com.x.y        目标应用
-#    uid=10234          目标 uid（空的话自动从 app 解析）
+#    apps=com.x.y,com.z.w   目标应用（多个，逗号分隔；任意一个前台就生效）
+#    uids=10234,10235       对应的 uid（空则自动从 apps 解析）
+#    app=/uid=              旧键（单个），仍然兼容
 #    freq=0             锁频：0=不动 / 0 以外的 kHz 值
 #    gov=               调速器：空=不动
 #    affinity=          亲和性：big=只用超大核 / all=不绑(全核) / 空=不动
@@ -67,6 +68,22 @@ uid_of_pkg(){ u=$(sed -n "s|^$1 ||p" "$BASE/uids" 2>/dev/null | head -n1)
         [ -d "$b/$1" ] && { u=$(stat -c %u "$b/$1" 2>/dev/null); [ -n "$u" ] && [ "$u" != "0" ] && { echo "$1 $u" >> "$BASE/uids"; echo "$u"; return; }; }
     done }
 # 按 uid 找进程：优先 ps（toybox 的 C 实现，一次 fork；awk 扫 500 个 status 文件要几百毫秒）
+# 目标应用列表（apps= 新键；app= 旧键兼容）
+apps_list(){
+    a=$(cfg apps); [ -z "$a" ] && a=$(cfg app)
+    echo "$a" | tr ',' '\n' | sed 's/^ *//; s/ *$//' | grep .
+}
+# 解析出所有目标的 uid（逗号分隔）
+uids_of_apps(){
+    us=$(cfg uids); [ -z "$us" ] && us=$(cfg uid)
+    if [ -n "$us" ]; then echo "$us" | tr ',' '\n' | grep . | tr '\n' ','; return; fi
+    out=""
+    for a in $(apps_list); do
+        u=$(uid_of_pkg "$a")
+        [ -n "$u" ] && out="$out$u,"
+    done
+    echo "$out"
+}
 pids_of_uid(){
     [ -z "$1" ] && return
     p=$(ps -A -o PID,UID 2>/dev/null | awk -v w="$1" 'NR > 1 && $2 == w { print $1 }')
@@ -142,6 +159,8 @@ apply)
     mdirs
     app=$(cfg app); uid=$(cfg uid)
     [ -z "$uid" ] && [ -n "$app" ] && uid=$(uid_of_pkg "$app")
+    uids=$(uids_of_apps | sed 's/,$//')
+    [ -z "$uids" ] && uids="$uid"
     freq=$(cfg freq); gov=$(cfg gov); aff=$(cfg affinity); rr=$(cfg refresh)
     [ -z "$freq" ] && freq=0
     [ -z "$rr" ] && rr=0
@@ -186,7 +205,7 @@ apply)
         done
     fi
     # ③ 线程亲和性（按 uid 找进程，全部绑到超大核）
-    if [ -n "$aff" ] && [ -n "$uid" ]; then
+    if [ -n "$aff" ] && [ -n "$uids" ]; then
         case "$aff" in
         big) mh=$(mask_of "$cores"); lbl="线程绑定 超大核";;
         all) mh=$(all_mask);        lbl="线程恢复 全核";;
@@ -194,13 +213,15 @@ apply)
         esac
         if [ -n "$mh" ]; then
             n=0
-            for p in $(pids_of_uid "$uid"); do
+            for u in $(echo "$uids" | tr ',' ' '); do
+              for p in $(pids_of_uid "$u"); do
                 n=$((n+1))
                 if [ "$DRY" = "1" ]; then echo "[dry] taskset -p $mh $p"
                 else
                     taskset -p "$mh" "$p" >/dev/null 2>&1
                     for t in /proc/$p/task/[0-9]*; do [ -d "$t" ] && taskset -p "$mh" "${t##*/}" >/dev/null 2>&1; done
                 fi
+              done
             done
             [ -n "$lbl" ] && echo "$lbl（$n 个进程）" >> "$APPLIED"
         fi
@@ -233,9 +254,17 @@ restore)
     [ -f "$R" ] && sh "$R" restore >/dev/null 2>&1
     ;;
 check)
-    # 给桌面 App 用：一条命令拿到全部状态（App 每 2 秒问一次）
+    # 给桌面 App 用：一条命令拿到全部状态（App 每秒问一次）
     app=$(cfg app); uid=$(cfg uid)
     [ -z "$uid" ] && [ -n "$app" ] && uid=$(uid_of_pkg "$app")
+    apps=$(cfg apps); [ -z "$apps" ] && apps="$app"
+    uids=$(uids_of_apps | sed 's/,$//')
+    # 多目标：任意一个在前台就算
+    fg=0; fguid=""; fapp=""
+    for u in $(echo "$uids" | tr ',' ' '); do
+        [ -z "$u" ] && continue
+        if [ "$(fg_of_uid "$u")" = "1" ]; then fg=1; fguid="$u"; fapp=$(pm list packages --uid "$u" 2>/dev/null | head -n1 | sed 's/^package://'); break; fi
+    done
     echo "enabled=$(cfg enabled)"
     echo "app=${app:-}"
     echo "uid=${uid:-}"
@@ -245,7 +274,11 @@ check)
     echo "refresh=$(cfg refresh)"
     echo "menu=$(cfg menu)"
     echo "hud=$(cfg hud)"
-    echo "fg=$(fg_of_uid "$uid")"
+    echo "apps=$apps"
+    echo "uids=$uids"
+    echo "fg=$fg"
+    echo "fguid=$fguid"
+    echo "fapp=${fapp:-}"
     echo "applied=$([ -f "$APPLIED" ] && echo 1 || echo 0)"
     ls=$(grep -v '^state=' "$APPLIED" 2>/dev/null | awk '{ print length($0), $0 }' | sort -rn | cut -d' ' -f2- | tr '\n' '|')
     echo "list=${ls%|}"
@@ -297,7 +330,7 @@ boost)
     # 用的是系统自己的接口：ps / pm list packages / /proc —— 不需要什么特殊权限（root 下）。
     mdirs
     wl=",$(cfg whitelist),"
-    app=$(cfg app); [ -n "$app" ] && wl="$wl$app,"
+    for a in $(apps_list); do wl="$wl$a,"; done
     before=$(awk '/MemAvailable/{print $2}' /proc/meminfo 2>/dev/null)
     n=0; killed=""
     for p in $(ps -A -o PID 2>/dev/null | awk 'NR > 1 {print $1}'); do
@@ -327,6 +360,8 @@ clearlog)
     ;;
 status)
     app=$(cfg app); uid=$(cfg uid)
+    echo "apps=$(cfg apps)"
+    echo "uids=$(uids_of_apps | sed 's/,$//')"
     echo "enabled=$(cfg enabled)"
     echo "app=${app:-}"
     echo "uid=${uid:-}"
