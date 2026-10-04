@@ -17,9 +17,12 @@ O=/sys/class/oplus_chg
 B=/sys/class/power_supply/battery
 U=/sys/class/power_supply/usb
 
-pick() {   # 第一个可写的
+try_write(){ { echo "$2" > "$1"; } 2>/dev/null; }
+pick() {   # 第一个"真能写"的（sysfs 上 test -w 不可靠）
     for p in "$@"; do
-        [ -w "$p" ] && { echo "$p"; return 0; }
+        [ -e "$p" ] || continue
+        cur=$(val "$p")
+        try_write "$p" "$cur" && { echo "$p"; return 0; }
     done
     return 1
 }
@@ -39,7 +42,14 @@ orig_save(){
 }
 # 写 + 回读确认：写成功 ≠ 生效（会被驱动忽略、被别的组件改回）
 finish_write(){
-    is_num "$2" || { echo "bad-value"; return 1; }
+    # 注意：这里【不能】要求"纯数字" ✗ —— 有些节点（比如欧加 chg_up_limit）
+    # 写的是 "0,80,1,80,2" 这种组合值，之前被当成非法值拦下（用户实测 bad-value ✓）。
+    # 用户输入合法性由各子命令自己校验 ✓，这里只做基本安全过滤。
+    case "$2" in
+        '') echo "bad-value（空值）"; return 1 ;;
+        *[!0-9,._-]*) echo "bad-value（含不支持的字符）"; return 1 ;;
+    esac
+    if [ ${#2} -gt 64 ]; then echo "bad-value（太长）"; return 1; fi
     orig_save "$1"
     echo "$2" > "$1" 2>/dev/null || { echo "write-fail"; return 1; }
     sleep 0.2
@@ -103,7 +113,8 @@ caps)
 limit)
     P=$(pick $O/common/chg_up_limit) || { echo "unsupported"; exit 1; }
     V="$2"
-    case "$V" in ''|*[!0-9]*) echo "bad-arg"; exit 2 ;; esac
+    case "$V" in ''|*[!0-9]*) echo "bad-arg（要 0-100 的数字）"; exit 2 ;; esac
+    { [ "$V" -ge 0 ] && [ "$V" -le 100 ]; } || { echo "bad-arg（要 0-100）"; exit 2; }
     cur=$(val "$P")
     # 欧加格式： <下限开关>,<下限%>,<上限开关>,<上限%>,<模式>
     # 例 0,80,0,80,2  →  开启上限改成 0,80,1,80,2
