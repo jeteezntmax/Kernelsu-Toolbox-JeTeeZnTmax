@@ -67,6 +67,7 @@ public class PerfService extends Service {
     private String app = "", uid = "", enabled = "0", menuOn = "1", hudOn = "1";
     private String hudItems = "", cpuKhz = "", cpuMax = "", battUa = "", battUv = "", tempC = "";
     private String hudTitle = "";      // 最上面那行自定义标题（%s = 启用/停用）
+    private float fontSp = 0f;         // WebUI 里选的字号（0 = 还没读到，用视图默认）
     private int drift = 0;
     private double fps2 = -1;
     private long frameN = 0, fpsBaseMs = 0;
@@ -245,6 +246,11 @@ public class PerfService extends Service {
     }
 
     private void parse(String out) {
+        final float fsp = fontSp;
+        if (fsp >= 8f) ui.post(new Runnable() { public void run() {
+            if (hud != null) hud.setFontSp(fsp);
+            if (menu != null) menu.setFontSp(fsp);
+        } });
         final ArrayList<String> ls = new ArrayList<String>();
         String listRaw = "", cfgRaw = "";
         for (String L : out.split("\n")) {
@@ -266,6 +272,9 @@ public class PerfService extends Service {
             else if (k.equals("cfglist")) cfgRaw = v;
             else if (k.equals("hud_items")) hudItems = v;
             else if (k.equals("hud_title")) hudTitle = v;
+            else if (k.equals("font")) {
+                try { fontSp = Float.parseFloat(v.trim()); } catch (Exception ignored) { }
+            }
             else if (k.equals("cpu_khz")) cpuKhz = v;
             else if (k.equals("cpu_max")) cpuMax = v;
             else if (k.equals("batt_ua")) battUa = v;
@@ -344,6 +353,7 @@ public class PerfService extends Service {
     private void ensureHud() {
         if (hud != null || wm == null) return;
         hud = new FeatureHudView(this);
+        if (fontSp >= 8f) hud.setFontSp(fontSp);
         SharedPreferences sp = getSharedPreferences(PREF, MODE_PRIVATE);
         int type = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -426,7 +436,8 @@ public class PerfService extends Service {
 
     private void refreshHud() {
         if (hud == null) return;
-        boolean on = !"0".equals(hudOn);
+        // 总开关关了 → 提示悬浮窗也跟着关（作者要求）
+        boolean on = !"0".equals(hudOn) && "1".equals(enabled);
         ArrayList<String> use = new ArrayList<String>();
         if (applied == 1 && !lines.isEmpty()) use.addAll(lines); else use.addAll(cfgLines);
         use.addAll(sysLines());
@@ -464,6 +475,7 @@ public class PerfService extends Service {
         if (menuShown && menu != null) { buildRows(); return; }
         if (menu == null) {
             menu = new VolumeMenuView(this);
+            if (fontSp >= 8f) menu.setFontSp(fontSp);
             menu.setOnAction(new VolumeMenuView.OnAction() {
                 public void onCycle(String key, String value) { setAndApply(key, value); }
                 public void onToggle(String key, String value) { setAndApply(key, value); }

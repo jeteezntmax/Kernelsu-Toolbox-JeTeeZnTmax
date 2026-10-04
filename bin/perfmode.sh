@@ -261,6 +261,7 @@ check)
     echo "cfglist=${cl2%|}"
     echo "hud_items=$(cfg hud_items)"
     echo "hud_title=$(cfg hud_title)"
+    echo "font=$(cfg font)"
     echo "whitelist=$(cfg whitelist)"
     # ── 系统参数（给提示悬浮窗用，一条命令一起读回来）──
     big=$(big_cores | awk '{print $1}')

@@ -1359,6 +1359,8 @@ function perfHTML(){
         <input class="modern-input" id="gaTitle" placeholder="KSU工具箱-游戏加速：%s" autocomplete="off" spellcheck="false">
         <button class="chip-btn" id="gaTitleSave">保存</button>
       </div>
+      <label style="margin-top:10px">悬浮窗字号（提示列表和音量键菜单都跟着变）</label>
+      <div class="tagrow" id="gaFont"></div>
       <label style="margin-top:10px">清后台白名单（这些应用的后台不动）</label>
       <div class="tagrow">
         <button class="chip-btn" id="gaWlPick">选择应用</button>
@@ -4932,6 +4934,7 @@ function gaPaint(){
   gaHudItemsPaint();
   gaTitlePaint();
   gaWlPaint();
+  gaFontPaint();
   const sh2 = $("gaHint");
   if(sh2) sh2.textContent = p.cfg.enabled === "1" ? ("已开启" + (p.cfg.fg === "1" ? " · 目标在前台" : " · 目标不在前台")) : "未开启";
   const s2 = $("gaStat");
@@ -5047,6 +5050,16 @@ function gaItemsOn(){
   if(!raw) return GA_ITEMS.map(x => x[0]);            // 没配过 = 全显示
   return raw.split(",").map(x => x.trim()).filter(Boolean);
 }
+function gaFontPaint(){
+  const host = $("gaFont"); if(!host) return;
+  const cur = String(gaState().cfg.font || "12");
+  host.innerHTML = ["10","12","14","16","18"].map(function(v){
+    return '<button class="chip-btn" data-fs="' + v + '"' + (v === cur ? ' style="background:var(--blue-soft);color:var(--blue)"' : '') + '>' + v + (v === cur ? " ✓" : "") + '</button>';
+  }).join("");
+  host.querySelectorAll("[data-fs]").forEach(function(b){
+    b.onclick = function(){ gaSet("font", b.dataset.fs); };
+  });
+}
 function gaHudItemsPaint(){
   const host = $("gaHudItems"); if(!host) return;
   const on = gaItemsOn();
@@ -5123,7 +5136,13 @@ async function gaWlPick(){
   };
 }
 function gaInit(){
+  // 先把控件画出来 —— 之前只在"配置读成功"后才画，
+  // 读失败就整片空白，看着像功能没做 ✗
   gaPaint();
+  gaHudItemsPaint();
+  gaTitlePaint();
+  gaWlPaint();
+  gaFontPaint();
   gaLoad();
   gaAccCheck();
 }

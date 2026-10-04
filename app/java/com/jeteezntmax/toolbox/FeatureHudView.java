@@ -61,23 +61,40 @@ public class FeatureHudView extends View {
         h.removeCallbacks(tick);
         if (vis == VISIBLE) h.post(tick);
     }
-    private final float density, textSize, rowH, pad;
+    private final float density;
+    private float textSize, rowH, pad, fontSp = 12f;
     private final ArrayList<String> lines = new ArrayList<String>();
 
     public FeatureHudView(Context c) {
         super(c);
         density = c.getResources().getDisplayMetrics().density;
-        textSize = sp(12f);
-        rowH = dp(23);
-        pad = dp(3);
+        applyFont();
         /* 不要底框：只留文字，所以给个黑影保证在任何画面上都看得清 */
-        pTx.setTextSize(textSize);
         pTx.setFakeBoldText(true);
-        pTx.setShadowLayer(dp(3), 0, dp(1), 0xE6000000);
-        pTitle.setTextSize(sp(13.5f));
         pTitle.setFakeBoldText(true);
-        pTitle.setShadowLayer(dp(3.5f), 0, dp(1), 0xE6000000);
         hueBase = 0f;
+        applyFont();
+    }
+
+    /** 字号可调（WebUI 里选，默认 12） */
+    public void setFontSp(float v) {
+        if (v < 8f) v = 8f;
+        if (v > 24f) v = 24f;
+        if (Math.abs(v - fontSp) < 0.01f) return;
+        fontSp = v;
+        applyFont();
+        requestLayout();
+        invalidate();
+    }
+
+    private void applyFont() {
+        textSize = sp(fontSp);
+        rowH = dp(fontSp * 1.9f);
+        pad = dp(Math.max(2f, fontSp * 0.25f));
+        pTx.setTextSize(textSize);
+        pTitle.setTextSize(sp(fontSp * 1.12f));
+        pTx.setShadowLayer(dp(fontSp * 0.25f), 0, dp(1), 0xE6000000);
+        pTitle.setShadowLayer(dp(fontSp * 0.3f), 0, dp(1), 0xE6000000);
     }
 
     private float dp(float v) { return v * density; }

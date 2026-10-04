@@ -44,7 +44,8 @@ public class VolumeMenuView extends View {
     private final Paint pBtn = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pBtnTx = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-    private final float density, rowH, fs, fsSmall;
+    private final float density;
+    private float rowH, fs, fsSmall, fontSp = 13.5f;
     private String title = "游戏加速";
     private String appName = "";
     private boolean enabled = false;
@@ -55,19 +56,38 @@ public class VolumeMenuView extends View {
     public VolumeMenuView(Context c) {
         super(c);
         density = c.getResources().getDisplayMetrics().density;
-        fs = sp(13.5f);
-        fsSmall = sp(11f);
-        rowH = dp(34);
+        applyFont();
         pBg.setColor(0xF2070A0F);
         pBg.setStyle(Paint.Style.FILL);
         pBd.setColor(0x66FFFFFF);
         pBd.setStyle(Paint.Style.STROKE);
         pBd.setStrokeWidth(dp(1));
-        pTx.setColor(0xFFFFFFFF); pTx.setTextSize(fs); pTx.setFakeBoldText(true);
-        pLab.setColor(0xFFB9C3CF); pLab.setTextSize(fs);
-        pVal.setColor(0xFF6FB4FF); pVal.setTextSize(fs); pVal.setFakeBoldText(true);
+        pTx.setColor(0xFFFFFFFF); pTx.setFakeBoldText(true);
+        pLab.setColor(0xFFB9C3CF);
+        pVal.setColor(0xFF6FB4FF); pVal.setFakeBoldText(true);
         pBtn.setColor(0x22FFFFFF); pBtn.setStyle(Paint.Style.FILL);
-        pBtnTx.setColor(0xFFE8ECF2); pBtnTx.setTextSize(sp(12.5f));
+        pBtnTx.setColor(0xFFE8ECF2);
+        applyFont();
+    }
+
+    /** 字号跟着 WebUI 那个设置走（同一档） */
+    public void setFontSp(float v) {
+        if (v < 8f) v = 8f;
+        if (v > 24f) v = 24f;
+        fontSp = v;
+        applyFont();
+        requestLayout();
+        invalidate();
+    }
+
+    private void applyFont() {
+        fs = sp(fontSp);
+        fsSmall = sp(fontSp * 0.82f);
+        rowH = dp(Math.max(30f, fontSp * 2.5f));
+        pTx.setTextSize(fs);
+        pLab.setTextSize(fs);
+        pVal.setTextSize(fs);
+        pBtnTx.setTextSize(sp(fontSp * 0.94f));
     }
 
     private float dp(float v) { return v * density; }
