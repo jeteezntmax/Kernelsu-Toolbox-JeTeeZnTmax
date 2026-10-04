@@ -553,7 +553,10 @@ public class PerfService extends Service {
         int type = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
-        gripLp = new WindowManager.LayoutParams(dp(24), dp(24), type,
+        // 以前这里是 dp(24), dp(24) —— 那是小圆点把手的尺寸；
+        // 换成标题条后必须按文字自适应，否则标题被裁成几个字
+        gripLp = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT, type,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
