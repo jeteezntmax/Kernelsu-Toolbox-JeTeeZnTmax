@@ -129,3 +129,14 @@ if [ -f "$APP" ]; then
         ui_print "! 桌面 App 没装上，去设置页手动装一下"
     fi
 fi
+
+# ── 关于作者 ──────────────────────────────────────────────
+ui_print " "
+ui_print "  ────────── 关于作者 ──────────"
+ui_print "   作者    JeTeeZnTmax"
+ui_print "   GitHub  github.com/jeteezntmax/Kernelsu-Toolbox-JeTeeZnTmax"
+ui_print "   酷安    JeTeeZnTmaxQwQ"
+ui_print "   QQ      3892039309"
+ui_print "   QQ 群   1102902791"
+ui_print "  ─────────────────────────────"
+ui_print " "

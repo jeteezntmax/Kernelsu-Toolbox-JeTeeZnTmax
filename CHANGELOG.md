@@ -1,6 +1,21 @@
 # 更新日志
 
+## v3.4.11
+
+### 新增：设置页最下面「关于作者」
+
+一张卡片：头像 + 名字 + 四个可点即复制的条目 ——
+
+- **GitHub 仓库**：`github.com/jeteezntmax/Kernelsu-Toolbox-JeTeeZnTmax`
+- **酷安**：`JeTeeZnTmaxQwQ`
+- **作者 QQ**：`3892039309`
+- **QQ 群**：`1102902791`
+
+（头像是模块图标 `webroot/assets/avatar.png`，想换成你本人的头像直接替换这个文件即可。）
+安装脚本 `customize.sh` 里也 `ui_print` 了一遍，刷模块时能在管理器日志里看到。
+
 ## v3.4.10
+
 
 ### 修复：标题条被裁成 "KSU" 三个字
 

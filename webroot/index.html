@@ -3788,6 +3788,7 @@ function settingsHTML(){
       <button data-act="go-diag">自检与日志<em>环境体检</em></button>
     </section>
     <p class="field-hint">设置存在 WebView 的 localStorage 里，跟着 KernelSU 管理器走。</p>
+    ${authorCard()}
   </div>`;
 }
 function diagHTML(){
@@ -3897,6 +3898,40 @@ function openMenu(){
     '<button class="df-item" data-act="go-about"><div class="mark">i</div><div class="body"><strong>关于</strong><em>版本与来源</em></div><div class="go">›</div></button>' +
     '</section>');
 }
+function authorCard(){
+  return `
+    <div class="section-head" style="margin-top:2px"><h2>关于作者</h2></div>
+    <section class="card" style="padding:14px 16px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <img src="assets/avatar.png" alt="" onerror="this.style.display='none'"
+             style="width:52px;height:52px;border-radius:50%;object-fit:cover;border:1px solid var(--border);flex:none">
+        <div style="min-width:0">
+          <strong style="display:block;font-size:14px">JeTeeZnTmax</strong>
+          <span style="display:block;color:var(--text-3);font-size:10px">Kernelsu 工具箱 作者</span>
+        </div>
+      </div>
+      <div class="tagrow" style="margin-top:12px">
+        <button class="chip-btn" data-au="repo">GitHub 仓库</button>
+        <button class="chip-btn" data-au="coolapk">酷安 JeTeeZnTmaxQwQ</button>
+      </div>
+      <div class="tagrow" style="margin-top:6px">
+        <button class="chip-btn" data-au="qq">作者 QQ 3892039309</button>
+        <button class="chip-btn" data-au="group">QQ 群 1102902791</button>
+      </div>
+      <p class="field-hint">点一下按钮就复制。有问题来 QQ 群找我最快。</p>
+    </section>`;
+}
+document.addEventListener("click", function(ev){
+  const b = ev.target.closest("[data-au]");
+  if(!b) return;
+  const v = b.getAttribute("data-au");
+  if(v === "repo") copyText("https://github.com/jeteezntmax/Kernelsu-Toolbox-JeTeeZnTmax");
+  else if(v === "coolapk") copyText("JeTeeZnTmaxQwQ");
+  else if(v === "qq") copyText("3892039309");
+  else if(v === "group") copyText("1102902791");
+});
+function authorCardInit(){}
+
 function aboutHTML(){
   const st = state;
   let mi = null;
