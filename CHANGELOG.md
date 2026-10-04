@@ -1,6 +1,41 @@
 # 更新日志
 
+## v3.4.18
+
+### 新增：温度伪装（自己写的实现，不是搬别人的）
+
+社区里有个同类模块 **AaTempSpoof**（`aylz10/AaTempSpoof`）—— 它**没有许可证** ✗，
+我们模块现在是 GPL-3.0，**不能把它的代码/二进制打包进来**
+（这跟之前 Device Faker 的坑是同一类问题，只是反过来）。它那份流传的 zip 更是把
+`customize.sh`/`service.sh` 和核心二进制全部加密成黑盒 ✗，根本没法审计。
+
+所以这一版是**照着"往哪些节点写"这种设备事实自己写的**（节点路径不是谁的创作），
+实现完全按我们模块的规范：
+
+- **探测式**：`therm.sh caps` 先告诉你这台机器哪些能用（可写的 `emul_temp` 热区 /
+  电池温度 / 循环次数 / 温度墙候选节点），**不可写的就明确报 unsupported，绝不瞎写** ✓
+- **温度伪装**：对可写的热区先关 `mode` 再写 `emul_temp`（跨机型最通用的一招）
+- **电池温度 / 循环次数 / 温度墙**：候选节点按厂商顺序探测（参考了它列出的那批路径，
+  比如 OPPO 的 `/sys/class/oplus_chg/battery/*`、小米的 `/sys/class/mi_battchg/*`、
+  联发科的 `/proc/ppm/policy/*`）
+- **写后回读确认**：写进去 ≠ 生效，回读不一致会记进日志 ✓
+- **原值记录 + 还原**：`therm-orig` 存原值；`therm.sh restore` 写回；
+  卸载脚本也会自动还原 ✓
+- 开机自动应用（配置里 `enabled=1` 才动）✓
+
+> **没有做**：它那套"改 `/odm/etc/temperature_profile/*.xml`"的做法 ——
+> 那正是 EG 出 bug 的地方 ✗，不重蹈覆辙。
+
+用法（WebUI 终端里就能跑）：
+```
+sh /data/adb/modules/ksu_toolbox/bin/therm.sh caps        # 先看这台机器支持什么
+sh /data/adb/modules/ksu_toolbox/bin/therm.sh temp on 43000   # CPU/GPU 热区伪装成 43℃
+sh /data/adb/modules/ksu_toolbox/bin/therm.sh batt on 30000   # 电池 30℃
+sh /data/adb/modules/ksu_toolbox/bin/therm.sh restore         # 全还原
+```
+
 ## v3.4.17
+
 
 ### 移除 Extreme GT（去温控）整套
 

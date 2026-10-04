@@ -32,6 +32,13 @@ MODDIR=${0%/*}
         [ "$pe" = "1" ] && am start-foreground-service -n $PKG/.PerfService >/dev/null 2>&1
     fi
 
+    # 温度伪装（配置里开着才应用）
+    TH="$MODDIR/bin/therm.sh"
+    if [ -f "$TH" ]; then
+        te=$(grep -m1 '^enabled=' /data/adb/ksu_toolbox/therm.conf 2>/dev/null | cut -d= -f2)
+        [ "$te" = "1" ] && sh "$TH" temp on "$(grep -m1 '^cpu=' /data/adb/ksu_toolbox/therm.conf 2>/dev/null | cut -d= -f2)" >/dev/null 2>&1
+    fi
+
     # 刷新率保活（如果之前锁过刷新率）
     RF="$MODDIR/bin/refresh.sh"
     if [ -f "$RF" ]; then
