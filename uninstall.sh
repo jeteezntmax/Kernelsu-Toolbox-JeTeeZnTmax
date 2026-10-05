@@ -28,6 +28,12 @@ if [ -f "$MODDIR/bin/chg.sh" ]; then
     say "   充电节点：$r"
 fi
 
+# ②c 游戏加速：把锁上的 CPU 频率 / 调速器 / 刷新率还回去（不然卸载后还锁着）
+if [ -f "$MODDIR/bin/perfmode.sh" ]; then
+    r=$(sh "$MODDIR/bin/perfmode.sh" restore 2>/dev/null)
+    say "   游戏加速锁频：$r"
+fi
+
 # ③ Extreme GT 动过的 persist 属性：写回原值
 if [ -f "$B/eg-orig.props" ]; then
     n=0

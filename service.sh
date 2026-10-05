@@ -26,6 +26,10 @@ MODDIR=${0%/*}
         am start -n $PKG/.MonitorActivity >/dev/null 2>&1
     fi
 
+    # 上次会话如果锁着就重启了：sysfs 已回默认，清掉陈旧的"已应用"记录，
+    # 免得 PerfService 误判"已经应用"而不再重新写
+    rm -f /data/adb/ksu_toolbox/perf/applied.state /data/adb/ksu_toolbox/perf/orig.state 2>/dev/null
+
     # 游戏加速：配置里开着就把它拉起来（不然开机后没人管自动应用）
     if [ -f /data/adb/ksu_toolbox/perf/profile.conf ]; then
         pe=$(grep -m1 '^enabled=' /data/adb/ksu_toolbox/perf/profile.conf 2>/dev/null | cut -d= -f2)

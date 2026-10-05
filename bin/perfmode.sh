@@ -45,6 +45,13 @@ setcfg(){   # setcfg <键> <值>
 wr(){ [ -e "$1" ] || return 1; [ -z "$2" ] && return 1
       if [ "$DRY" = "1" ]; then echo "[dry] echo $2 > $1"; return 0; fi
       echo "$2" > "$1" 2>/dev/null; }
+# ColorOS 把 scaling_min_freq / scaling_governor 设成 0444 只读：
+#   直接 echo > 会被 EACCES 静默拒掉 —— 这就是"CPU 锁频开了没效果"的根因 ✗
+#   先 chmod 666 再写即可（Scene 对 game_opt 节点也是这么干的）✓
+wr_u(){ [ -e "$1" ] || return 1; [ -z "$2" ] && return 1
+        if [ "$DRY" = "1" ]; then echo "[dry] chmod 666 $1; echo $2 > $1"; return 0; fi
+        chmod 666 "$1" 2>/dev/null
+        echo "$2" > "$1" 2>/dev/null; }
 
 # ── 核 / 频率 / 权限 ──
 all_cpus(){ n=0; for d in $CPU/cpu[0-9]*; do n=$((n+1)); done; echo "$n"; }
@@ -110,6 +117,8 @@ save_orig(){
           echo "gov_$c=$(rd $CPU/cpu$c/cpufreq/scaling_governor)"
           echo "min_$c=$(rd $CPU/cpu$c/cpufreq/scaling_min_freq)"
           echo "max_$c=$(rd $CPU/cpu$c/cpufreq/scaling_max_freq)"
+          echo "gmode_$c=$(stat -c %a $CPU/cpu$c/cpufreq/scaling_governor 2>/dev/null)"
+          echo "mmode_$c=$(stat -c %a $CPU/cpu$c/cpufreq/scaling_min_freq 2>/dev/null)"
       done
       echo "peak=$(settings get system peak_refresh_rate 2>/dev/null)"
       echo "minr=$(settings get system min_refresh_rate 2>/dev/null)"
@@ -117,17 +126,35 @@ save_orig(){
 }
 do_restore(){
     [ -f "$ORIG" ] || { rm -f "$APPLIED"; return 0; }
-    say=""
+    fail=0
     for c in $(sed -n 's/^big=//p' "$ORIG" | head -n1); do
         g=$(sed -n "s/^gov_$c=//p" "$ORIG" | head -n1)
         mn=$(sed -n "s/^min_$c=//p" "$ORIG" | head -n1)
         mx=$(sed -n "s/^max_$c=//p" "$ORIG" | head -n1)
-        [ -n "$mx" ] && wr "$CPU/cpu$c/cpufreq/scaling_max_freq" "$mx"
-        [ -n "$mn" ] && wr "$CPU/cpu$c/cpufreq/scaling_min_freq" "$mn"
-        [ -n "$g" ]  && wr "$CPU/cpu$c/cpufreq/scaling_governor" "$g"
+        [ -n "$mx" ] && wr_u "$CPU/cpu$c/cpufreq/scaling_max_freq" "$mx"
+        [ -n "$mn" ] && wr_u "$CPU/cpu$c/cpufreq/scaling_min_freq" "$mn"
+        [ -n "$g" ]  && wr_u "$CPU/cpu$c/cpufreq/scaling_governor" "$g"
+        # ★ 读回来核对：没还回去就【别删记录】★
+        #   否则下次 save_orig 会把"还锁着的值"当成"原值"记下来 → 之后每次还原都把 CPU 钉回去
+        #   （踩过：min 被记成 3.44G，大核再也下不来 ✗）
+        if [ "$DRY" != "1" ]; then
+            [ -n "$mx" ] && [ "$(rd $CPU/cpu$c/cpufreq/scaling_max_freq)" != "$mx" ] && fail=1
+            [ -n "$mn" ] && [ "$(rd $CPU/cpu$c/cpufreq/scaling_min_freq)" != "$mn" ] && fail=1
+            [ -n "$g" ]  && [ "$(rd $CPU/cpu$c/cpufreq/scaling_governor)" != "$g" ] && fail=1
+        fi
+        # 把厂商设的 0444 只读权限原样还回去
+        mM=$(sed -n "s/^mmode_$c=//p" "$ORIG" | head -n1)
+        gM=$(sed -n "s/^gmode_$c=//p" "$ORIG" | head -n1)
+        [ -n "$mM" ] && { [ "$DRY" = "1" ] || chmod "$mM" "$CPU/cpu$c/cpufreq/scaling_min_freq" 2>/dev/null; }
+        [ -n "$gM" ] && { [ "$DRY" = "1" ] || chmod "$gM" "$CPU/cpu$c/cpufreq/scaling_governor" 2>/dev/null; }
     done
-    rm -f "$ORIG" "$APPLIED"
-    echo "已还原"
+    rm -f "$APPLIED"
+    if [ "$fail" = "0" ]; then
+        rm -f "$ORIG"
+        echo "已还原"
+    else
+        echo "还原不完全（记录保留，下次重试）"
+    fi
 }
 
 case "$1" in
@@ -180,28 +207,28 @@ apply)
             f=$freq
             [ -n "$hi" ] && [ "$f" -gt "$hi" ] 2>/dev/null && f=$hi
             [ -n "$lo" ] && [ "$f" -lt "$lo" ] 2>/dev/null && f=$lo
-            wr $d/scaling_min_freq "$f"; wr $d/scaling_max_freq "$f"
+            wr_u $d/scaling_min_freq "$f"; wr_u $d/scaling_max_freq "$f"
         done
         echo "CPU 锁频 $(awk -v f="$freq" 'BEGIN{printf "%.2fG", f/1000000}')" >> "$APPLIED"
     fi
     # ② 调速器
     if [ -n "$gov" ]; then
-        for c in $cores; do wr $CPU/cpu$c/cpufreq/scaling_governor "$gov"; done
+        for c in $cores; do wr_u $CPU/cpu$c/cpufreq/scaling_governor "$gov"; done
         echo "调速器 $gov" >> "$APPLIED"
     fi
     # ②b 关掉的项 → 从原值还原（用户点了"不动"就该真的不动）
     if [ -z "$gov" ]; then
         for c in $cores; do
             og=$(sed -n "s/^gov_$c=//p" "$ORIG" 2>/dev/null | head -n1)
-            [ -n "$og" ] && wr $CPU/cpu$c/cpufreq/scaling_governor "$og"
+            [ -n "$og" ] && wr_u $CPU/cpu$c/cpufreq/scaling_governor "$og"
         done
     fi
     if [ -z "$freq" ] || [ "$freq" = "0" ]; then
         for c in $cores; do
             omx=$(sed -n "s/^max_$c=//p" "$ORIG" 2>/dev/null | head -n1)
             omn=$(sed -n "s/^min_$c=//p" "$ORIG" 2>/dev/null | head -n1)
-            [ -n "$omx" ] && wr $CPU/cpu$c/cpufreq/scaling_max_freq "$omx"
-            [ -n "$omn" ] && wr $CPU/cpu$c/cpufreq/scaling_min_freq "$omn"
+            [ -n "$omx" ] && wr_u $CPU/cpu$c/cpufreq/scaling_max_freq "$omx"
+            [ -n "$omn" ] && wr_u $CPU/cpu$c/cpufreq/scaling_min_freq "$omn"
         done
     fi
     # ③ 线程亲和性（按 uid 找进程，全部绑到超大核）
@@ -317,7 +344,11 @@ check)
     # ── 保活：有几项被改回去了 ──
     df=0
     if [ -n "$freq" ] && [ "$freq" != "0" ]; then
-        for c in $(big_cores); do cur=$(rd $CPU/cpu$c/cpufreq/scaling_max_freq); [ "$cur" != "$freq" ] && df=$((df+1)); done
+        for c in $(big_cores); do
+            cur=$(rd $CPU/cpu$c/cpufreq/scaling_max_freq); [ "$cur" != "$freq" ] && df=$((df+1))
+            mn=$CPU/cpu$c/cpufreq/scaling_min_freq
+            if [ -w "$mn" ]; then cur=$(rd "$mn"); [ "$cur" != "$freq" ] && df=$((df+1)); fi
+        done
     fi
     if [ -n "$gov" ]; then
         c0=$(big_cores | awk '{print $1}')

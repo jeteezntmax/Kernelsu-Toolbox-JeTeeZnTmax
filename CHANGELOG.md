@@ -1,3 +1,32 @@
+## v3.5.10 — 修「游戏加速 · CPU 锁频」没效果（2026-10-05）
+
+**根因**：ColorOS 把 `/sys/devices/system/cpu/*/cpufreq/scaling_min_freq` 和 `scaling_governor` 的权限设成 **`0444`（只读）**。
+`perfmode.sh` 直接 `echo >` 会被内核 **EACCES 静默拒掉**（`2>/dev/null` 把报错也一起吞了）——
+于是界面上"锁频/调速器"是开着的，实际**一个字节都没写进去**。
+
+**修法**：写这几个节点前先 `chmod 666`（跟 Scene 对 OPPO `game_opt` 节点的做法一致）；
+`save_orig` 里记下它们的原权限，`restore` 时原样还回去。顺带把保活自检也加上 `min_freq`
+（只在"够得着写"的机型上算，免得把 min 封死的机器无限重试）。
+
+- 影响：**CPU 锁频（超大核 min=max）**、**调速器** —— 从此真正生效
+- 实测（作者机 OnePlus / SM8845）：`chmod 666` 后 min/max 都写得进，锁住后 5 秒纹丝不动
+
+**顺带修掉三个"退出了还锁着"的洞**（都跟上面同源）：
+
+- **`restore` 也写不进 min/governor**（同样 EACCES）→ 退出后调速器还停在 `performance`、大核还锁着。
+  现在 `restore` 全程走 `wr_u`（先 chmod 再写），并把厂商的 `0444` 权限原样还回去
+- **`uninstall.sh` 没调 `perfmode.sh restore`** → 卸载后 CPU/调速器还锁着到重启。已补上
+- **`PerfService` 停止时没还原**（用户关掉 / 被系统回收）→ 现在 `onDestroy` 会调一次 `restore`
+- `service.sh` 开机清掉陈旧的 `perf/applied.state`，免得服务误判"已应用"而不重新写
+
+**再修一个更阴的"原值被污染"**（这版最要紧的一处）：
+
+- 以前 `restore` 写不进 min（0444）**却照样把 `orig.state` 删了**；
+  下次 `apply` 的 `save_orig` 就把"还锁着的 3.44G min"当成了"原值"记下来 →
+  之后每次还原都把 CPU 钉回 3.44G（表现：**idle 就 3.4G、进游戏能到 3.8、退出又回 3.4**）
+- 现在 `restore` **写完读回来核对**：没真的还回去，**就不删记录**（下次重试），永不把锁着的值记成原值
+- 已经中毒的机器：删掉 `perf/orig.state`、`perf/applied.state` 再重启一次即可（`service.sh` 现在开机也会清）
+
 ## v3.5.9 — 把「本地 HTTP 服务」收进 KernelSU WebUI（2026-10-05）
 
 **决定**：桌面 App 的内置 WebView 打不开本地端口（v3.5.7 / v3.5.8 两次尝试都没能搞定），不再折腾 ——
