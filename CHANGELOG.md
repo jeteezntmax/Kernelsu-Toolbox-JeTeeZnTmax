@@ -1,4 +1,11 @@
 ## v3.5.6 — 修复（2026-10-05）
+- **修复「本地 HTTP 服务」找不到模块目录**：目录探测脚本名写的是 `bin/eg.sh`（Extreme GT 的脚本，
+  为安全早已删除）→ 现在改找 `bin/webui-server.sh`，这就是界面上彈「找不到 bin/webui-server.sh」的根因
+- **修复 HTTP 服务状态永远显示"未运行"**：状态读取同样调的是 `eg.sh status` → 改调 `webui-server.sh status`，
+  并在状态里显示实际使用的 busybox 路径（配合上一版的 busybox 检测修复）
+- 自检卡片「EG 引擎」→「HTTP 服务脚本」
+- 收尾残留旧名：网页标题、菜单标题、关于页兜底名 → Cometa（作者名与酷安 ID 保留）
+- 安全：两个写热区入口（依赖已删除的 eg.sh）直接堵死，避免将来误触发
 
 - **修复「本地 HTTP 服务」误报 busybox httpd 不可用**：判断方式从 `httpd --help` 的退出码
   改为检查 applet 清单（`busybox --list`）。busybox 的 applet 帮助打到 stderr 且退出码非 0，
