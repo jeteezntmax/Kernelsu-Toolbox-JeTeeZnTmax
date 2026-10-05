@@ -25,7 +25,7 @@ public class HudTitleView extends View {
     private final Paint pTx = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final float density;
     private float fontSp = 12f;
-    private String title = "KSU工具箱-游戏加速：停用";
+    private String title = "Cometa-游戏加速：停用";
     private float hueBase = 0f;
     private boolean pressed = false, alignRight = true;
     private DragHost host;

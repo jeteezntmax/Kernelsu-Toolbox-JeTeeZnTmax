@@ -36,6 +36,10 @@ public class SysStats {
         "T=$(cat $S/battery/temp 2>/dev/null); [ -z \"$T\" ] && T=$(cat $S/bms/temp 2>/dev/null); " +
         "echo TEMP $T; " +
         "C=$(cat $S/battery/current_now 2>/dev/null); [ -z \"$C\" ] && C=$(cat $S/bms/current_now 2>/dev/null); " +
+        /* 双电芯：内核报的电流是【单芯值】→ 在这里统一 ×2（电池页 / 监视器 / HUD 共用同一份设置，
+           都读 /data/adb/ksu_toolbox/batt.conf。这样就不会出现"页面对了、监视器少一半"✗）*/
+        "D=$(cut -d= -f2 /data/adb/ksu_toolbox/batt.conf 2>/dev/null | head -n1); " +
+        "[ \"$D\" = \"1\" ] && [ -n \"$C\" ] && C=$((C * 2)); " +
         "echo CUR $C; " +
         "V=$(cat $S/battery/voltage_now 2>/dev/null); [ -z \"$V\" ] && V=$(cat $S/bms/voltage_now 2>/dev/null); " +
         "echo VOLT $V; " +

@@ -1630,21 +1630,23 @@ function powerHTML(){
         <span id="chgLimitVal" style="color:var(--blue);font:600 12px var(--mono);width:42px;text-align:right">80%</span>
       </div>
       <div class="tagrow">
-        <button class="chip-btn" id="chgLimitSet">设为上限</button>
-        <button class="chip-btn" id="chgLimitOff">关闭上限</button>
+        <button class="chip-btn" id="chgLimitSet">开启保护</button>
+        <input class="modern-input" id="chgRecover" placeholder="恢复%" inputmode="numeric" style="width:74px">
+        <button class="chip-btn" id="chgLimitOff">关闭保护</button>
       </div>
+      <label style="margin-top:10px">充电调速（mA，0 = 不限流）</label>
+      <div class="file-row" style="align-items:center">
+        <input type="range" id="chgIcl" min="0" max="22000" step="100" value="3000" style="flex:1;margin:0">
+        <span id="chgIclVal" style="color:var(--blue);font:600 12px var(--mono);width:64px;text-align:right;line-height:24px">3000 mA</span>
+        <button class="chip-btn" id="chgIclSet" style="flex:none">写入</button>
+      </div>
+      <p class="field-hint">0 = 不限流；0~22000 mA（机型节点上限更低时后端会自动夹住 ✓）</p>
       <div class="tagrow">
         <button class="chip-btn" id="chgSuspend">停充</button>
         <button class="chip-btn" id="chgResume">恢复充电</button>
         <button class="chip-btn" id="chgSlowToggle">慢充 开/关</button>
       </div>
-      <label style="margin-top:8px">充电功率上限（mW，留空=默认）</label>
-      <div class="file-row">
-        <input class="modern-input" id="chgPower" placeholder="例如 30000" inputmode="numeric" autocomplete="off">
-        <button class="action-btn primary" id="chgPowerSet">设置</button>
-      </div>
-    </section>
-  </div>`;
+      </div>`;
 }
 function battCurrentUA(raw){
   const v = num(raw);
@@ -1687,7 +1689,9 @@ function updatePower(m){
   if(pick(m, ["ac_online"]) === "1") chips.push('<i class="chip blue">AC 已连接</i>');
   if(pick(m, ["wl_online"]) === "1") chips.push('<i class="chip blue">无线充电</i>');
   if(pick(m, ["dc_online"]) === "1") chips.push('<i class="chip blue">DC 已连接</i>');
-  const icl = num(pick(m, ["usb_icl", "usb_input_current"])), vmax = battVoltageUV(pick(m, ["usb_vmax"]));
+  const icl = num(pick(m, ["usb_icl", "usb_input_current"]));
+  const vmax = battVoltageUV(pick(m, ["usb_vmax"]));
+  // 限流滑条的初始化已挪到 chgStatus（用写入用的那个节点，免得跳回旧值）
   if(icl && vmax) chips.push(`<i class="chip">上限 ${(icl/1e6 * vmax/1e6).toFixed(1)} W</i>`);
   $("pwChips").innerHTML = chips.join("");
 
@@ -4813,7 +4817,26 @@ function thPaint(){
     + " · 电池节点 " + (st.batt_path || "—")
     + " · 循环节点 " + (st.cycle_path || "—");
 }
+document.addEventListener("input", function(ev){
+  if(ev.target && ev.target.id === "chgIcl"){
+    const v = $("chgIclVal"); if(v) v.textContent = ev.target.value + " mA";
+  }
+});
 document.addEventListener("click", async function(ev){
+  if(ev.target && ev.target.id === "chgIclSet"){
+    const mA = parseInt(($("chgIcl")||{}).value || "0", 10);
+    if(isNaN(mA) || mA < 0 || mA > 22000){ toast("填 0~22000 mA"); return; }
+    state.iclIntent = mA * 1000;      // 记住意图 → 滑条不再跳回旧值 ✗
+    await chgAct("充电调速", "speed " + mA, mA === 0 ? "已取消调速（写回原值）" : "目标已下发（守护负责写入+保活）");
+    // 真话：节点实际是多少（不相等就是 ROM 没接受 ✗）
+    try{
+      const kv2 = parseKV(await chgRun("status"));
+      const got = Math.round(num(kv2.icl, 0) / 1000);
+      toast(mA === 0 ? "已取消限流" :
+        ("目标 " + mA + "mA · 节点实际 " + got + "mA" + (Math.abs(got - mA) > 1 ? "（ROM 没接受 ✗）" : "（已生效 ✓）")));
+    }catch(e){}
+    return;
+  }
   const bt = ev.target.closest("[data-batt]");
   if(bt){
     const next = (state.battDual === "1") ? "0" : "1";
@@ -5461,21 +5484,54 @@ async function chgStatus(){
   const cur = Math.abs(num(kv.curr, 0)) / 1000;
   const watt = volt * cur / 1000;
   const temp = num(kv.temp, 0) / 10;
-  const susp = kv.mmi === "0";
+  // 状态：直接报 battery/status 的真话。
+  // 以前拿 mmi_charging_enable 猜 ✗ —— 有些机型那个节点语义不对/不更新，
+  // 结果明明在 34W 充电却一直显示"已停充" ✗
+  const ST_CN = { charging:"充电中", discharging:"放电中", full:"已充满",
+                  "not charging":"未充电（可能被限制）" };
+  const statRaw = String(kv.stat || "").trim();
+  const statCn = ST_CN[statRaw.toLowerCase()] || statRaw || "--";
   const up = String(kv.limit || "").split(",");
   const limOn = up.length >= 5 && up[2] === "1";
   const limVal = up.length >= 5 ? up[3] : "--";
+  // 以【我们自己的配置】为准（节点那套很多机型不生效 ✗，看它反而误导）
+  const wantLim = parseInt(kv.want_stop || "0", 10) || 0;      // 停充阈值
+  const wantIcl = parseInt(kv.want_speed || "0", 10) || 0;     // 调速值（µA）
+  const watching = kv.guard === "1";                            // 守护在不在跑
+  const myCtx = kv.ctx || "";
+  // 上限滑条跟着真实节点走（不然界面和实际不一致）
+  { const sl = $("chgLimit"), vl = $("chgLimitVal");
+    if(sl && up.length >= 5 && document.activeElement !== sl){
+      const v = Math.max(0, Math.min(100, parseInt(up[3] || "80", 10) || 80));
+      sl.value = v; if(vl) vl.textContent = v + "%";
+    } }
+  // 限流滑条跟着【写入用的那个节点】走 —— 以前用 usb/current_max 初始化，
+  // 跟写入节点不是同一个 → 写完一刷新就跳回 2000mA ✗
+  { const sl = $("chgIcl"), vl = $("chgIclVal");
+    // 来源优先级：我们这次设过的（state.iclIntent）→ conf 里的目标 → 节点现值
+    // （以前只看后两者，链路一有问题就跳回旧值 ✗）
+    const iclSrc = state.iclIntent || wantIcl || num(kv.icl, 0);
+    if(sl && iclSrc && document.activeElement !== sl){
+      const mA = Math.max(0, Math.min(22000, Math.round(iclSrc / 1000)));
+      sl.value = mA; if(vl) vl.textContent = mA + " mA";
+    } }
   st.dataset.slow = String(kv.slow || "").split(",")[0] === "1" ? "1" : "0";
   st.innerHTML =
-    '<div class="row"><span>状态</span><strong class="' + (susp ? "warn" : "ok") + '">' +
-      esc(susp ? "已停充" : (kv.stat || "--")) + '</strong></div>' +
+    '<div class="row"><span>状态</span><strong class="' + (/charg|full/i.test(statRaw) ? "ok" : "warn") + '">' +
+      esc(statCn) + '</strong></div>' +
     '<div class="row"><span>电量</span><strong>' + cap.toFixed(0) + '%</strong></div>' +
     '<div class="row"><span>功率</span><strong>' + watt.toFixed(2) + ' W（' + volt.toFixed(2) + 'V · ' + cur.toFixed(0) + 'mA）</strong></div>' +
     '<div class="row"><span>温度</span><strong>' + temp.toFixed(1) + ' ℃</strong></div>' +
-    '<div class="row"><span>充电上限</span><strong class="' + (limOn ? "ok" : "") + '">' +
-      (limOn ? ("已开 · " + esc(limVal) + "%") : "未开") + '</strong></div>' +
+    '<div class="row"><span>充电保护</span><strong class="' + (wantLim ? "ok" : "") + '">' +
+      (wantLim
+        ? ("达 " + wantLim + "% 停 · 低 " + (kv.want_recover || 70) + "% 恢复" + (watching ? "（守护 ✓）" : "（守护没跑 ⚠）"))
+        : "未开") + '</strong></div>' +
     '<div class="row"><span>适配器</span><strong>' + esc((num(kv.apwr,0)/1000).toFixed(1)) + ' W</strong></div>';
-  if(hint) hint.textContent = "已连上 · " + (kv.icl ? ("限流 " + (num(kv.icl,0)/1000).toFixed(0) + "mA") : "—");
+  const iclShow = state.iclIntent || wantIcl || num(kv.icl, 0);
+  if(hint) hint.textContent = (myCtx ? ("[" + myCtx.split(":")[2] + "] ") : "") + "已连上 · " +
+    (iclShow ? ("目标限流 " + (iclShow/1000).toFixed(0) + "mA" +
+                (num(kv.icl,0) && Math.abs(num(kv.icl,0) - iclShow) > 1000 ? "（节点 " + (num(kv.icl,0)/1000).toFixed(0) + "mA ✗）" : "")) : "未设限流") +
+    (watching ? " · 监控中 ✓" : "");
 }
 async function chgAct(label, args, done){
   busy(true, label);
@@ -5982,19 +6038,19 @@ function init(){
     else if(id === "monSave") monSaveCfg();
     else if(id === "monResetCfg") monResetCfg();
     else if(id === "updCheck") checkUpdate();
-    else if(id === "chgLimitSet") chgAct("设置充电上限", "limit " + (($("chgLimit")||{}).value || 80), "上限已设");
-    else if(id === "chgLimitOff") chgAct("关闭充电上限", "limit 0", "上限已关");
+    else if(id === "chgLimitSet"){
+      const v = (($("chgLimit")||{}).value || 90);
+      const r = (($("chgRecover")||{}).value || "").trim();
+      chgAct("开启充电保护", "protect " + v + (r ? " " + r : ""), "保护已开：" + v + "% 停" + (r ? "、" + r + "% 恢复" : ""));
+    }
+    else if(id === "chgLimitOff") chgAct("关闭充电保护", "protect off", "保护已关");
     else if(id === "chgSuspend") chgAct("停充", "suspend 1", "已发送停充");
     else if(id === "chgResume") chgAct("恢复充电", "suspend 0", "已恢复充电");
     else if(id === "chgSlowToggle"){
       const s = ($("chgStatus") || {}).dataset || {};
       chgAct("切换慢充", "slow " + (s.slow === "1" ? "0" : "1"), "慢充已切换");
     }
-    else if(id === "chgPowerSet"){
-      const v = (($("chgPower")||{}).value || "").trim();
-      if(!/^\d+$/.test(v)){ toast("填个数字（mW），比如 30000"); return; }
-      chgAct("设置功率上限", "power " + v, "功率上限已设");
-    }
+
     else if(id === "monResetPos") monResetPos();
   });
   $("content").addEventListener("click", e => {

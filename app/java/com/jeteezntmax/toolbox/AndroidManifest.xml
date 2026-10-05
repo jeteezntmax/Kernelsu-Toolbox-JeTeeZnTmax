@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.jeteezntmax.toolbox"
+    android:versionCode="2"
+    android:versionName="1.1">
+
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="30" />
+
+    <!-- 迷你监视器悬浮窗 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <application
+        android:label="Cometa"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:hardwareAccelerated="true"
+        android:usesCleartextTraffic="false"
+        android:allowBackup="false"
+        android:supportsRtl="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="Cometa"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|keyboardHidden|uiMode|smallestScreenSize|screenLayout|density"
+            android:theme="@android:style/Theme.Material.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 悬浮窗入口：shell 里 am start -n .../.MonitorActivity 就能起 -->
+        <activity
+            android:name=".MonitorActivity"
+            android:exported="true"
+            android:label="Cometa 监视器"
+            android:launchMode="singleTop"
+            android:excludeFromRecents="true"
+
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- exported 是为了能从 shell / WebUI 发停止指令；
+             别的 app 最多也只是把这个悬浮窗关掉，无害 -->
+        <service
+            android:name=".MonitorService"
+            android:exported="true" />
+
+        <!-- 游戏加速：功能提示列表 + 音量键菜单 + 按 uid 自动应用 -->
+        <service
+            android:name=".PerfService"
+            android:exported="true" />
+
+        <!-- 长按音量上键呼出菜单：无障碍的「过滤按键事件」，不拦按键（音量照常） -->
+        <service
+            android:name=".KeyWatcher"
+            android:exported="true"
+            android:label="KSU 工具箱 · 音量键"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/key_watcher" />
+        </service>
+
+    </application>
+</manifest>

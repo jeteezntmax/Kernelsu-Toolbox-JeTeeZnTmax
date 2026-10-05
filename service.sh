@@ -37,6 +37,15 @@ MODDIR=${0%/*}
     # 一旦放进开机流程就会变成【开机就写 → 崩 → 重启】的死循环 ✗✗。
     # 所以只允许在 WebUI/终端里手动执行，并且要显式解锁（见 therm.sh 的 need_allow）。
 
+    # 充电控制守护（★ 必须开机拉起 ★）
+    # 原因：这些 vendor 的充电 sysfs 节点从 ksu.exec 的域里写会 EACCES ✗，
+    # 但开机脚本跑在 magisk 域 ✓ 能写 —— 所以"写节点"这份活必须由它来做，
+    # 界面那边只负责写配置文件。这正是 Scene 的架构（App + 自己的特权后台）✓
+    CH="$MODDIR/bin/chg.sh"
+    if [ -f "$CH" ]; then
+        sh "$CH" daemon start >/dev/null 2>&1
+    fi
+
     # 刷新率保活（如果之前锁过刷新率）
     RF="$MODDIR/bin/refresh.sh"
     if [ -f "$RF" ]; then

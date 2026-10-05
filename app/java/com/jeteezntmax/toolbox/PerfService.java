@@ -498,11 +498,11 @@ public class PerfService extends Service {
         return out;
     }
 
-    /** 最上面那行标题：默认 KSU工具箱-游戏加速：启用/停用；自己填了就用自己的（%s 会替换成状态） */
+    /** 最上面那行标题：默认 Cometa-游戏加速：启用/停用；自己填了就用自己的（%s 会替换成状态） */
     private String titleLine() {
         boolean run = "1".equals(enabled) && fg == 1;
         String st = run ? "启用" : "停用";
-        if (hudTitle == null || hudTitle.trim().isEmpty()) return "KSU工具箱-游戏加速：" + st;
+        if (hudTitle == null || hudTitle.trim().isEmpty()) return "Cometa-游戏加速：" + st;
         return hudTitle.trim().replace("%s", st);
     }
 

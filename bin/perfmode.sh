@@ -302,7 +302,13 @@ check)
     bmax=$(rd $CPU/cpu$big/cpufreq/cpuinfo_max_freq)
     [ -n "$bmax" ] && echo "cpu_max=$bmax"
     f=$(ls /sys/class/power_supply/*/current_now 2>/dev/null | head -n1)
-    [ -n "$f" ] && echo "batt_ua=$(rd $f)"
+    if [ -n "$f" ]; then
+        ua=$(rd "$f")
+        # 双电芯：内核报的是单芯电流 → 这里 ×2（跟电池页/监视器同一份设置 ✓）
+        [ "$(sed -n 's/^dual=//p' /data/adb/ksu_toolbox/batt.conf 2>/dev/null | head -n1)" = "1" ] && \
+            [ -n "$ua" ] && ua=$((ua * 2))
+        echo "batt_ua=$ua"
+    fi
     v=$(ls /sys/class/power_supply/*/voltage_now 2>/dev/null | head -n1)
     [ -n "$v" ] && echo "batt_uv=$(rd $v)"
     for z in /sys/class/thermal/thermal_zone*/temp; do

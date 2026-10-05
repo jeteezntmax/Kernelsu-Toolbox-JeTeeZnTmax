@@ -1,0 +1,1 @@
+import{Q as e,z as t}from"./runtime-dom.esm-bundler-DwdvQscD.js";import{t as n}from"./index-CY68efSi.js";function r(r,i){let a=n(),o=null;e(r,e=>{if(e)o=a.registerModal(i),a.pushModalHistory();else if(o!==null){let e=a.consumeProgrammaticClose();a.unregisterModal(o),o=null,e||a.popModalHistory()}}),t(()=>{o!==null&&(a.unregisterModal(o),o=null)})}export{r as t};
