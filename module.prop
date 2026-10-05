@@ -1,7 +1,7 @@
 id=ksu_toolbox
 name=Cometa
-version=v3.5.5
-versionCode=30505
+version=v3.5.6
+versionCode=30506
 author=@JeTeeZnTmax
 description=Cometa（原名 Kernelsu工具箱）：受保护的执行(ptrace拦截) + 应用/进程管理 + Device Faker 机型伪装 + 刷新率锁定 + 游戏加速 + 温度伪装 · 含独立桌面 App + 迷你监视器悬浮窗
 updateJson=https://cdn.jsdelivr.net/gh/jeteezntmax/Kernelsu-Toolbox-JeTeeZnTmax@main/update.json

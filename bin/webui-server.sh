@@ -20,10 +20,34 @@ MODDIR=${0%/*}/..
 mkdir -p "$DIR"
 
 bb() {
-    for b in /data/adb/ksu/bin/busybox /data/adb/magisk/busybox; do
+    # 各 root 方案的 busybox 路径都不一样，全试一遍 ✓
+    for b in /data/adb/ksu/bin/busybox /data/adb/ksud/bin/busybox \
+             /data/adb/magisk/busybox /data/adb/ap/bin/busybox \
+             /data/adb/apd/bin/busybox /system/bin/busybox /system/xbin/busybox \
+             /debug_ramdisk/busybox; do
         [ -x "$b" ] && { echo "$b"; return 0; }
     done
-    command -v busybox 2>/dev/null
+    b=$(command -v busybox 2>/dev/null)
+    [ -n "$b" ] && [ -x "$b" ] && { echo "$b"; return 0; }
+    # 最后兜底：在 /data/adb 下找（不要太深，几十毫秒）
+    b=$(find /data/adb -maxdepth 4 -name busybox -type f 2>/dev/null | head -n 1)
+    [ -n "$b" ] && [ -x "$b" ] && { echo "$b"; return 0; }
+    return 1
+}
+
+# ★ 判断 busybox 有没有 httpd 这个 applet ★
+# 以前用 `$BB httpd --help` 看退出码 —— busybox 的 applet 帮助打到 stderr 且退出码非 0 ✗
+# 结果：明明有 httpd，却被判成"不可用" ✓（作者真机踩到的就是这个）
+have_httpd() {
+    _bb=$1
+    [ -n "$_bb" ] && [ -x "$_bb" ] || return 1
+    # 正规做法：列出 applet 清单（老 busybox 没有 --list → 退化为直接看帮助文本）
+    if "$_bb" --list >/dev/null 2>&1; then
+        "$_bb" --list 2>/dev/null | grep -qx httpd && return 0
+        return 1
+    fi
+    "$_bb" httpd --help 2>&1 | grep -qi "httpd\|usage" && return 0
+    return 1
 }
 
 getport() {
@@ -154,8 +178,9 @@ start_it() {
         echo "error=no-busybox"
         return 1
     fi
-    if ! $BB httpd --help >/dev/null 2>&1; then
+    if ! have_httpd "$BB"; then
         echo "error=busybox-no-httpd"
+        echo "busybox=$BB"
         return 1
     fi
     stop_it
@@ -193,11 +218,12 @@ status_it() {
         echo "http_pid="
     fi
     BB=$(bb)
-    if [ -n "$BB" ] && [ -x "$BB" ] && $BB httpd --help >/dev/null 2>&1; then
+    if have_httpd "$BB"; then
         echo "http_busybox=1"
     else
         echo "http_busybox=0"
     fi
+    echo "http_bb=${BB:-}"
     echo "http_root=$WWW"
 }
 

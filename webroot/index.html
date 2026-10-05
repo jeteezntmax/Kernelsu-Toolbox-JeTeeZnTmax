@@ -3706,7 +3706,7 @@ function diagHTML(){
 const DIAG_CMD = [
   'echo "C|root 权限|$(if [ \"$(id -u)\" = \"0\" ]; then echo ok; else echo no; fi)|uid=$(id -u)"',
   'echo "C|ksud|$(if command -v ksud >/dev/null 2>&1; then echo ok; else echo warn; fi)|$(command -v ksud 2>/dev/null || echo 未找到)"',
-  'echo "C|busybox|$(if [ -x /data/adb/ksu/bin/busybox ]; then echo ok; else echo warn; fi)|/data/adb/ksu/bin/busybox"',
+  'echo "C|busybox|$(for b in /data/adb/ksu/bin/busybox /data/adb/ksud/bin/busybox /data/adb/magisk/busybox /data/adb/ap/bin/busybox /system/bin/busybox /system/xbin/busybox /debug_ramdisk/busybox; do [ -x $b ] && { echo ok; exit 0; }; done; b=$(command -v busybox 2>/dev/null); [ -n \"$b\" ] && { echo ok; exit 0; }; echo warn)|$(for b in /data/adb/ksu/bin/busybox /data/adb/ksud/bin/busybox /data/adb/magisk/busybox /data/adb/ap/bin/busybox /system/bin/busybox /system/xbin/busybox /debug_ramdisk/busybox; do [ -x $b ] && { echo $b; exit 0; }; done; command -v busybox 2>/dev/null || echo 未找到)"',
   'echo "C|模块目录|$(if [ -d /data/adb/modules/ksu_toolbox ]; then echo ok; else echo no; fi)|/data/adb/modules/ksu_toolbox"',
   'echo "C|WebUI 入口|$(if [ -f /data/adb/modules/ksu_toolbox/webroot/index.html ]; then echo ok; else echo no; fi)|index.html"',
   'echo "C|DF 原生库|$(if [ -f /data/adb/modules/ksu_toolbox/zygisk/arm64-v8a.so ]; then echo ok; else echo no; fi)|zygisk/arm64-v8a.so"',

@@ -1,3 +1,13 @@
+## v3.5.6 — 修复（2026-10-05）
+
+- **修复「本地 HTTP 服务」误报 busybox httpd 不可用**：判断方式从 `httpd --help` 的退出码
+  改为检查 applet 清单（`busybox --list`）。busybox 的 applet 帮助打到 stderr 且退出码非 0，
+  以前会把「明明可用」判成不可用
+- busybox 搜索路径铺开：`ksu/bin` · `ksud/bin` · `magisk` · `ap/bin` · `apd/bin` · `system/bin` ·
+  `system/xbin` · `debug_ramdisk`，并加 `command -v` 与 `/data/adb` 兜底查找
+- 设置页自检卡片同步放宽（以前只看 `/data/adb/ksu/bin/busybox` 一个路径）
+- 状态页新增显示实际使用的 busybox 路径，便于排查
+
 ## v3.5.5 — Cometa（2026-10-05）
 
 **改名 & 图标**
