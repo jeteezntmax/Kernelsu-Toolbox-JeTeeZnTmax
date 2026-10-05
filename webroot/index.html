@@ -3731,7 +3731,21 @@ function aboutHTML(){
 }
 async function httpAction(act, k1){
   const T = thermalState();
-  const dir = T.egDir;
+  let dir = T.egDir;
+  if(!dir){
+    // 兜底：现查一次模块目录。命令很短 —— 不会像那个大探测一样跑到一半被超时截断。
+    const q = 'E=""; for f in /data/adb/modules/*/bin/webui-server.sh /data/adb/modules_update/*/bin/webui-server.sh /data/adb/modules/ksu_toolbox-update/bin/webui-server.sh; do [ -f "$f" ] && { E="${f%/bin/webui-server.sh}"; break; }; done; echo "eg_dir=$E"';
+    const r = await sh(q, 12000);
+    dir = String((parseKV(r.stdout) || {}).eg_dir || "").trim();
+    if(!dir){
+      const cands = ["/data/adb/modules/ksu_toolbox", "/data/adb/modules_update/ksu_toolbox"];
+      for(let i = 0; i < cands.length; i++){
+        const c = await sh('test -f "' + cands[i] + '/bin/webui-server.sh" && echo yes', 8000);
+        if(String(c.stdout || "").indexOf("yes") >= 0){ dir = cands[i]; break; }
+      }
+    }
+    if(dir) T.egDir = dir;
+  }
   if(!dir){ toast("找不到 bin/webui-server.sh"); return; }
   const S = shq(dir + "/bin/webui-server.sh");
   if(act === "http-save"){
