@@ -1,3 +1,24 @@
+## v3.5.7 — 修复 App 内打不开本地服务 + 大扫除（2026-10-05）
+
+**修复：桌面 App 内打不开模块的本地 HTTP 服务（本地端口在浏览器能用、App 内不行）**
+- App 清单补上 `INTERNET` 权限
+- 新增 `res/xml/network_security_config.xml`：**只放行回环地址**（`127.0.0.1` / `localhost`）的明文 HTTP，其余一律禁止
+- App 自身版本 `1.1(2)` → `1.2(3)`
+
+**仓库大扫除（三棵树对齐）**
+- 把 `zygisk/arm64-v8a.so` · `df-default-config.toml` · `df-bundled-version.txt` · `tasks.default.txt` · `README-update.md` 补进 GitHub 仓库（之前源仓库是缺这些的）
+- 换掉仓库里那份 706KB 的旧 APK（新图标版只有 178KB）
+- 删除仓库里误传的根目录 `chg.sh` / `perfmode.sh` / `index.html` / `bin/service.sh` 和整个 `release/`
+- `pack.py` 不再往 gh-repo 塞 zip 副本；`release.py` 会把这批垃圾从 GitHub 一并删除
+
+**拆雷：WebUI 里从此没有任何「写热区 / 写电流」的代码**
+- 删掉 `thAct()` 的全部死分支（`zone-all` 写热区 / `chg` 写电流 / `svc*` / `eg-*` / `freq`）—— 之前它们只是"界面上没有按钮"才够不着
+- 连带收掉孤儿 `egRun` / `egWrite` / `egText` / `EG_ITEMS`
+
+**文案 & 腐肉**
+- 模块描述「温度伪装」→「温度只读」；`service.sh` / `customize.sh` / `uninstall.sh` / WebUI 里的旧名与过时提示清理
+- `chg.sh`：去掉对已删除的 `apply_speed` / `$sp` / `$DEAD` / `slow` 的引用；充电上限滑条改为跟随我们自己的 `want_stop` 配置
+
 ## v3.5.6 — 修复（2026-10-05）
 - **修复「本地 HTTP 服务」找不到模块目录**：目录探测脚本名写的是 `bin/eg.sh`（Extreme GT 的脚本，
   为安全早已删除）→ 现在改找 `bin/webui-server.sh`，这就是界面上彈「找不到 bin/webui-server.sh」的根因

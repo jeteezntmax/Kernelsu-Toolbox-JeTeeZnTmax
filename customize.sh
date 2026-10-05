@@ -1,13 +1,13 @@
 #!/system/bin/sh
 # ============================================================
-#  KSU 系统工具箱 · 安装脚本
+#  Cometa · 安装脚本
 #  内含三部分：
 #    1. 工具箱 WebUI（本模块自己）
 #    2. Device Faker 引擎（GPL-3.0，见 NOTICE-device_faker.txt）
 # ============================================================
 
 ui_print "=========================================="
-ui_print " 系统工具箱"
+ui_print " Cometa"
 ui_print " 含 Device Faker 引擎"
 ui_print "=========================================="
 
@@ -63,7 +63,6 @@ set_perm_recursive "$MODPATH/bin" 0 0 0755 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
 [ -d "$MODPATH/app" ] && set_perm_recursive "$MODPATH/app" 0 0 0755 0644
 [ -f "$MODPATH/bin/ksu_guard" ] && set_perm "$MODPATH/bin/ksu_guard" 0 0 0755
-set_perm "$MODPATH/eg-setup.sh" 0 0 0755
 
 # XML / json / txt 覆盖件给正确的 SELinux 上下文
 for d in odm my_product vendor product system; do
@@ -72,13 +71,8 @@ done
 
 ui_print "=========================================="
 ui_print " 装好了，重启后在模块列表点「打开」"
-ui_print " 温度页可以单独开关 Extreme GT 的每一项"
 ui_print "=========================================="
 
-if [ -d /data/adb/modules/extreme_gt ] || [ -d /data/adb/modules_update/extreme_gt ]; then
-    ui_print "! 检测到独立安装的 Extreme GT，请把它停用或卸载"
-    ui_print "! 两者会重复挂载同一批 XML"
-fi
 if [ -d /data/adb/modules/device_faker ] || [ -d /data/adb/modules_update/device_faker ]; then
     ui_print "! 检测到独立安装的 device_faker，请把它停用或卸载"
 fi

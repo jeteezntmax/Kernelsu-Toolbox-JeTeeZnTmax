@@ -142,7 +142,7 @@ do_restore(){
         [ -w "$path" ] && [ -n "$v" ] && { try_write "$path" "$v" && n=$((n+1)); }
         sleep 0.02
     done < "$ORIG"
-    rm -f "$ORIG" "$DEAD"
+    rm -f "$ORIG"
     do_suspend 0 >/dev/null 2>&1
     echo "已还原 $n 个节点（配置已清空、守护已停）"
     logline "restore：还原 $n 个"
@@ -170,14 +170,12 @@ nodes)
     ;;
 protect)
     if [ "$2" = "off" ]; then
-        # ⚠ 只关保护本身 ✗ 不要走全量还原：以前那样会把【调速配置】一起清掉、
-        # 还把守护停了 → 用户"关保护后立刻点调速"就变成跟还原赛跑（有时有效 ✗）
+        # ⚠ 只关保护本身 ✗ 不走全量还原：全量还原会把守护一起停掉，
+        # 用户"关保护后立刻又开"就跟还原赛跑（有时不生效 ✗）
         setcfg stop ""; setcfg recover ""
         do_suspend 0 >/dev/null 2>&1
-        # 如果之前设过调速，这里再把它按下（别被恢复充电带跑了）
-        [ -n "$sp" ] && [ "$sp" != "0" ] && apply_speed "$(( sp / 1000 ))" >/dev/null 2>&1
         keep_start >/dev/null 2>&1
-        echo "充电保护已关（已恢复充电；调速设置保持不动，守护=$(keep_running && echo 开 || echo 关)）"
+        echo "充电保护已关（已恢复充电；守护=$(keep_running && echo 开 || echo 关)）"
         exit 0
     fi
     case "$2" in ''|*[!0-9]*) echo "用法: chg.sh protect <停充%> [恢复%]"; exit 2 ;; esac
@@ -214,6 +212,6 @@ log)
     tail -n "${2:-60}" "$PLOG" 2>/dev/null || echo "(还没日志)"
     ;;
 *)
-    echo "用法: chg.sh {status|nodes|protect <停%> [恢复%]|protect off|suspend 0|1|slow 0|1|daemon start|stop|restore|conf|set <键> <值>|log}"
+    echo "用法: chg.sh {status|nodes|protect <停%> [恢复%]|protect off|suspend 0|1|daemon start|stop|restore|conf|set <键> <值>|log}"
     ;;
 esac

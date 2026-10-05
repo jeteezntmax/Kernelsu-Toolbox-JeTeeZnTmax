@@ -1897,7 +1897,7 @@ function initTerm(){
   const out = $("termOut");
   if(out && !out.dataset.ready){
     out.dataset.ready = "1";
-    termLog("sys", "KSU 系统工具箱 · root 终端已就绪");
+    termLog("sys", "Cometa · root 终端已就绪");
     termLog("sys", HAS_BRIDGE ? "已检测到 WebUI 执行接口。" : "未检测到 KernelSU 环境，命令不会真正执行。");
   }
   const input = $("termInput");
@@ -3229,9 +3229,8 @@ async function regenAndroidId(){
 /* ============================================================
  *  11. 温控
  *  ------------------------------------------------------------
- *  纯 shell 实现：温度总览 / 温控服务开关 / thermal zone 开关 /
- *  降频 / 限充电电流。温度伪装见 /温度 页（bin/therm.sh）。
- *  直接读写它的明文配置（温度伪装本体由它的原生库完成）。
+ *  纯 shell 实现：温度总览（只读）。写热区 / 降频 / 限充电电流 /
+ *  温度伪装 均已下线 ✗。温度只读见 /温度 页（bin/therm.sh）。
  * ============================================================ */
 const THERM_STATIC = [
   `o=""; for s in thermal-engine thermal-engine-hh thermal thermald mi_thermald thermal_manager thermal-hal-2-0 vendor.thermal-hal-2-0 vthermal mtk-thermal qti_thermal thermal-hal-1-0; do v="$(getprop init.svc.$s 2>/dev/null)"; [ -n "$v" ] && o="$o$s=$v;"; done; echo "svcs=$o"`,
@@ -3265,17 +3264,6 @@ function thermalState(){
 }
 function egDefaults(){
   return {enabled:"1", xml:"1", emul:"1", gpu:"1", touch:"1", horae:"1"};
-}
-const EG_ITEMS = [
-  ["xml", "XML 覆盖", "把去温控的 sys_thermal_control_config / sys_thermal_config / game_thermal_config 等 bind-mount 回原路径"],
-  ["emul", "emul_temp 白名单", "只对 8 个手工挑过的 zone 写 29.5℃（不含 CPU/GPU 核心温度）；非 OnePlus SM8650 机型改为停 oplus ORMS 服务"],
-  ["gpu", "GPU 满档", "max_pwrlevel=0，max_gpu_clk / max_clock_mhz 锁到最大"],
-  ["touch", "触摸进程 renice", "vendor-oplus-hardware-touch-V2-service / touchDaemon → -19"],
-  ["horae", "horae testmode", "dumpsys horae testmode + 往 /proc/shell-temp 写 29500"]
-];
-function egText(c){
-  return ["enabled","xml","emul","gpu","touch","horae"]
-    .map(k => k + "=" + (c[k] === undefined ? "0" : c[k])).join("\n") + "\n";
 }
 const ZONE_CLS_NAME = {cpu: "CPU", gpu: "GPU", batt: "电池", mem: "内存", other: "其他"};
 function zoneClass(type){
@@ -3480,121 +3468,6 @@ async function thermalBoot(){
   await loadThermalDyn();
   startLoop();
 }
-async function thAct(act, k1, el){
-  const t = thermalState();
-  if(t.busy) return;
-  if(t.demo){ toast("演示模式：未执行"); return; }
-  t.busy = true;
-  busy(true, "执行中");
-  try{
-    if(act === "svc"){
-      const name = el.getAttribute("data-k1");
-      const go = el.getAttribute("data-k2") === "stop";
-      const r = await sh(go + " " + shq(name) + " 2>/dev/null; echo __OK__", 15000);
-      toast(r.stdout.indexOf("__OK__") >= 0 ? ("已" + (go ? "停止 " : "启动 ") + name) : "命令没成功");
-    }else if(act === "svc-all"){
-      const go = k1 === "stop";
-      let n = 0;
-      for(const s of Object.keys(t.svcs)){
-        if((t.svcs[s] === "running") === go){ await sh((go ? "stop " : "start ") + shq(s) + " 2>/dev/null", 8000); n++; }
-      }
-      toast((go ? "已停掉 " : "已启动 ") + n + " 个温控服务");
-    }else if(act === "zone-all"){
-      const wantOff = k1 === "off";
-      const cmd =
-        'o=""; for z in /sys/class/thermal/thermal_zone*; do ' +
-        'v=""; IFS= read -r v 2>/dev/null < "$z/mode"; [ -n "$v" ] || continue; ' +
-        'case "$v" in disabled|1) cur=off;; *) cur=on;; esac; ' +
-        'if [ "' + (wantOff ? "off" : "on") + '" = "$cur" ]; then continue; fi; ' +
-        'if [ "$cur" = "on" ]; then { echo disabled > "$z/mode" 2>/dev/null || echo 1 > "$z/mode" 2>/dev/null; } && o="$o-"; ' +
-        'else { echo enabled > "$z/mode" 2>/dev/null || echo 0 > "$z/mode" 2>/dev/null; } && o="$o+"; fi; done; echo "n=$o"';
-      const r = await sh(cmd, 30000);
-      toast((wantOff ? "已禁用 " : "已恢复 ") + (parseKV(r.stdout).n || "").length + " 个 zone");
-    }else if(act === "eg-enable"){
-      const c = Object.assign(egDefaults(), t.eg || {});
-      c.enabled = c.enabled === "1" ? "0" : "1";
-      await egWrite(c);
-    }else if(act === "eg-item"){
-      const c = Object.assign(egDefaults(), t.eg || {});
-      c[k1] = c[k1] === "1" ? "0" : "1";
-      await egWrite(c);
-    }else if(act === "eg-apply" || act === "eg-clear" || act === "eg-gone"){
-      // Extreme GT 已从模块移除（这些按钮在新版界面上已经不存在了）
-      toast("Extreme GT 已从模块移除");
-    }else if(act === "freq"){
-      const pct = clamp(parseInt(k1, 10) || 100, 10, 100);
-      const cmd =
-        'P=' + pct + '; o=""; for d in /sys/devices/system/cpu/cpu*/cpufreq; do ' +
-        'm=""; IFS= read -r m 2>/dev/null < "$d/cpuinfo_max_freq"; [ -n "$m" ] || continue; ' +
-        't=$((m * P / 100)); echo "$t" > "$d/scaling_max_freq" 2>/dev/null && o="$o+"; done; ' +
-        'g=0; for f in /sys/class/kgsl/kgsl-3d0/max_gpuclk /sys/class/devfreq/gpufreq/max_freq; do ' +
-        'if [ -f "$f" ]; then c=""; IFS= read -r c 2>/dev/null < "$f"; ' +
-        'if [ -n "$c" ]; then n=$((c * P / 100)); echo "$n" > "$f" 2>/dev/null && g=1; fi; break; fi; done; ' +
-        'echo "cpu=$o"; echo "gpu=$g"';
-      const r = await sh(cmd, 30000);
-      const kv = parseKV(r.stdout);
-      toast("CPU 上限 → " + pct + "%（" + (kv.cpu || "").length + " 核）" + (kv.gpu === "1" ? " · GPU 同改" : ""));
-    }else if(act === "chg"){
-      const v = String(k1 || "").replace(/[^0-9]/g, "");
-      if(!v) return;
-      const cmd =
-        'V=' + v + '; o=""; for k in input_current_limit constant_charge_current_max charge_control_limit; do ' +
-        '[ -f /sys/class/power_supply/battery/$k ] && echo "$V" > /sys/class/power_supply/battery/$k 2>/dev/null && o="$o$k "; done; ' +
-        '[ -f /sys/class/power_supply/usb/current_max ] && echo "$V" > /sys/class/power_supply/usb/current_max 2>/dev/null && o="\${o}usb "; ' +
-        'echo "ok=$o"';
-      const r = await sh(cmd, 15000);
-      const got = (parseKV(r.stdout).ok || "").trim();
-      toast(got ? "已限制到 " + (Number(v)/1e6).toFixed(2) + " A（" + got + "）" : "写入失败，机型可能不开放这个节点");
-    }
-  }catch(e){
-    toast("执行失败：" + ((e && e.message) || e));
-  }finally{
-    busy(false);
-    t.busy = false;
-  }
-  await loadThermal();
-  await loadThermalDyn();
-}
-async function egRun(mode, okMsg){
-  const t = thermalState();
-  toast("写热区功能已移除 ✗（写热区会导致热控崩溃 / 重启循环）"); return null;
-  toast("写热区功能已移除 ✗（写热区会导致热控崩溃 / 重启循环，只保留只读）"); return null;
-  const kv = parseKV(r.stdout);
-  if(okMsg) toast(okMsg);
-  else if(mode === "apply"){
-    const bits = [];
-    if(kv.xml_mounted) bits.push("挂载 " + kv.xml_mounted + " 个");
-    if(kv.emul_written) bits.push("emul " + kv.emul_written + " 个");
-    if(kv.orms) bits.push("ORMS 已停");
-    if(kv.horae) bits.push("horae ok");
-    toast(bits.length ? "已应用：" + bits.join(" · ") : "已应用");
-  }else if(mode === "eg-gone" || mode === "clear") toast("Extreme GT 已从模块移除");
-  else toast("已执行");
-  return kv;
-}
-async function egWrite(cfg){
-  const t = thermalState();
-  const prev = t.eg;
-  t.eg = cfg;
-  if(t.demo){ renderThermal(); toast("演示模式：未写入"); return; }
-  busy(true, "写入 EG 配置");
-  try{
-    const ok = await dfWriteFile("/data/adb/ksu_toolbox/eg.txt", egText(cfg));
-    if(!ok){
-      t.eg = prev; renderThermal();
-      toast("配置写入失败，已撤销");
-      return;
-    }
-    toast("写热区功能已移除 ✗（只保留只读）"); return;
-    if(cfg.enabled !== "1"){
-      await egRun("clear", "已关闭，温度伪装已恢复");
-    }else{
-      await egRun("apply");
-    }
-  }finally{ busy(false); }
-  await loadThermal();
-}
-
 /* ============================================================
  *  11.5 设置 / 自检与日志
  * ============================================================ */
@@ -3766,7 +3639,7 @@ async function runDiag(){
   logs.push(opLog().slice(-60).join("\n") || "(空)");
   if(eg.egLog){
     logs.push("");
-    logs.push("=== 温度伪装日志（therm.sh）===");
+    logs.push("=== 温度日志（therm.sh）===");
     logs.push(eg.egLog.replace(/\|/g, "\n"));
   }
   logs.push("");
@@ -3811,7 +3684,7 @@ function authorCard(){
              style="width:52px;height:52px;border-radius:50%;object-fit:cover;border:1px solid var(--border);flex:none">
         <div style="min-width:0">
           <strong style="display:block;font-size:14px">JeTeeZnTmax</strong>
-          <span style="display:block;color:var(--text-3);font-size:10px">Kernelsu 工具箱 作者</span>
+          <span style="display:block;color:var(--text-3);font-size:10px">Cometa 作者</span>
         </div>
       </div>
       <div class="tagrow" style="margin-top:12px">
@@ -4736,7 +4609,7 @@ function guardInit(){
 }
 
 /* ============================================================
- *  11.7c 温度伪装（后端 bin/therm.sh）
+ *  11.7c 温度只读（后端 bin/therm.sh）
  *  节点清单参考了社区同类模块（AaTempSpoof）的做法，实现是自己写的：
  *  探测式 + 写后回读 + 原值记录 + 还原
  * ============================================================ */
@@ -4805,7 +4678,6 @@ function thPaint(){
   if(s) s.textContent = "总开关 " + (st.enabled === "1" ? "开" : "关")
     + " · 保活 " + (st.keep === "1" ? "开" : "关")
     + (st.reverts && st.reverts !== "0" ? "（被改回 " + st.reverts + " 次）" : "")
-    + " · 可写热区 " + (st.emul_zones || "?")
     + " · 电池节点 " + (st.batt_path || "—")
     + " · 循环节点 " + (st.cycle_path || "—");
 }
@@ -5464,21 +5336,16 @@ async function chgStatus(){
                   "not charging":"未充电（可能被限制）" };
   const statRaw = String(kv.stat || "").trim();
   const statCn = ST_CN[statRaw.toLowerCase()] || statRaw || "--";
-  const up = String(kv.limit || "").split(",");
-  const limOn = up.length >= 5 && up[2] === "1";
-  const limVal = up.length >= 5 ? up[3] : "--";
   // 以【我们自己的配置】为准（节点那套很多机型不生效 ✗，看它反而误导）
   const wantLim = parseInt(kv.want_stop || "0", 10) || 0;      // 停充阈值
-  const wantIcl = parseInt(kv.want_speed || "0", 10) || 0;     // 调速值（µA）
   const watching = kv.guard === "1";                            // 守护在不在跑
   const myCtx = kv.ctx || "";
-  // 上限滑条跟着真实节点走（不然界面和实际不一致）
+  // 上限滑条跟着【我们自己的配置】走（节点那套很多机型不生效 ✗，看它反而误导）
   { const sl = $("chgLimit"), vl = $("chgLimitVal");
-    if(sl && up.length >= 5 && document.activeElement !== sl){
-      const v = Math.max(0, Math.min(100, parseInt(up[3] || "80", 10) || 80));
+    if(sl && document.activeElement !== sl){
+      const v = Math.max(0, Math.min(100, wantLim || 80));
       sl.value = v; if(vl) vl.textContent = v + "%";
     } }
-  st.dataset.slow = String(kv.slow || "").split(",")[0] === "1" ? "1" : "0";
   st.innerHTML =
     '<div class="row"><span>状态</span><strong class="' + (/charg|full/i.test(statRaw) ? "ok" : "warn") + '">' +
       esc(statCn) + '</strong></div>' +
@@ -5490,11 +5357,8 @@ async function chgStatus(){
         ? ("达 " + wantLim + "% 停 · 低 " + (kv.want_recover || 70) + "% 恢复" + (watching ? "（守护 ✓）" : "（守护没跑 ⚠）"))
         : "未开") + '</strong></div>' +
     '<div class="row"><span>适配器</span><strong>' + esc((num(kv.apwr,0)/1000).toFixed(1)) + ' W</strong></div>';
-  const iclShow = state.iclIntent || wantIcl || num(kv.icl, 0);
-  if(hint) hint.textContent = (myCtx ? ("[" + myCtx.split(":")[2] + "] ") : "") + "已连上 · " +
-    (iclShow ? ("目标限流 " + (iclShow/1000).toFixed(0) + "mA" +
-                (num(kv.icl,0) && Math.abs(num(kv.icl,0) - iclShow) > 1000 ? "（节点 " + (num(kv.icl,0)/1000).toFixed(0) + "mA ✗）" : "")) : "未设限流") +
-    (watching ? " · 监控中 ✓" : "");
+  if(hint) hint.textContent = (myCtx ? ("[" + myCtx.split(":")[2] + "] ") : "") + "已连上" +
+    (watching ? " · 守护运行中 ✓" : " · 守护没跑 ⚠");
 }
 async function chgAct(label, args, done){
   busy(true, label);
@@ -6102,12 +5966,6 @@ function init(){
       if(a === "http-copy"){ copyText(withTokenAddr()); return; }
       if(a === "app-install"){ await installApp(); return; }
       if(a === "app-check"){ await checkApp(); return; }
-    }
-    const th = e.target.closest("[data-thact]");
-    if(th){
-      thAct(th.getAttribute("data-thact"), th.getAttribute("data-k1"), th)
-        .catch(err => toast("执行失败：" + ((err && err.message) || err)));
-      return;
     }
     const d = e.target.closest("[data-dfact]");
     if(d && d.getAttribute("data-dfact") === "df-native"){ location.href = "./df.html"; return; }

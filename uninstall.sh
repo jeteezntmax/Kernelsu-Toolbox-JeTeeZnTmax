@@ -28,12 +28,6 @@ if [ -f "$MODDIR/bin/chg.sh" ]; then
     say "   充电节点：$r"
 fi
 
-# ②b 温度伪装：还原
-if [ -f "$MODDIR/bin/therm.sh" ]; then
-    r=$(sh "$MODDIR/bin/therm.sh" restore 2>/dev/null)
-    say "   温度伪装：$r"
-fi
-
 # ③ Extreme GT 动过的 persist 属性：写回原值
 if [ -f "$B/eg-orig.props" ]; then
     n=0
