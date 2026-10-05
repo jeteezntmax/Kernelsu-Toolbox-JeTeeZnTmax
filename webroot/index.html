@@ -3494,6 +3494,40 @@ function backBtn(){
   const to = state.lastTab && state.lastTab !== "settings" && state.lastTab !== "diag" ? state.lastTab : "home";
   return '<button class="add-inline" data-act="go-back" data-k1="' + esc(to) + '">‹ 返回</button>';
 }
+/* 本地 HTTP 服务区块。
+   桌面 App 的内置 WebView 打不开本地端口（实测不可用）→ App 里只给一句指路；
+   要在 KernelSU 的 WebUI 里才给完整的启动/停止操作。
+   判据：getIcons 是本模块桌面 App 独有的桥方法，KernelSU 不提供。 */
+function httpSectionHTML(){
+  const p = prefs();
+  const egT = thermalState();
+  const addr = "http://127.0.0.1:" + (egT.webPort || p.port) + "/";
+  const b = bridge();
+  if(b && typeof b.getIcons === "function"){
+    return '<div class="section-head" style="margin-top:2px"><h2>本地 HTTP 服务</h2><span class="hint">在 KernelSU 里配置</span></div>' +
+      '<p class="field-hint">桌面 App 里的 WebView 打不开本地端口，这项功能已从 App 里移除。<br>' +
+      '要开的话：<b>KernelSU 管理器 → 模块 → Cometa → 打开</b> → <b>设置 → 本地 HTTP 服务</b>。</p>';
+  }
+  return '<div class="section-head" style="margin-top:2px"><h2>本地 HTTP 服务</h2><span class="hint">浏览器里也能打开</span></div>' +
+    '<section class="card row-list">' +
+      '<div class="row"><span>状态</span><strong class="' + (egT.webRunning ? "ok" : "") + '">' + (egT.webRunning ? "运行中" : "未运行") + '</strong></div>' +
+      '<div class="row"><span>busybox httpd</span><strong class="' + (egT.webBusybox ? "ok" : "warn") + '">' + (egT.webBusybox ? "可用" : "不可用") + '</strong></div>' +
+      '<div class="row"><span>监听地址</span><strong>' + esc(addr) + '</strong></div>' +
+      '<div class="row"><span>访问令牌</span><strong>' + esc(egT.webToken || "--") + '</strong></div>' +
+    '</section>' +
+    '<section class="card row-list">' +
+      '<div class="row row-edit"><span style="flex:1;text-align:left;color:var(--text)">开机自动启动</span>' + segHTML("http", [["1", "开"], ["0", "关"]]) + '</div>' +
+      '<div class="row row-edit"><span style="flex:1;text-align:left;color:var(--text)">端口</span>' +
+        '<input class="th-input" id="httpPort" value="' + esc(p.port) + '" style="width:88px" autocomplete="off"></div>' +
+    '</section>' +
+    '<div class="tagrow" style="padding:2px 4px 0">' +
+      '<button class="chip-btn" data-act="http-save">保存端口并启动</button>' +
+      '<button class="chip-btn" data-act="http-stop">停止服务</button>' +
+      '<button class="chip-btn" data-act="http-copy">复制访问地址</button>' +
+    '</div>' +
+    '<p class="field-hint">只监听 127.0.0.1，局域网和外网都访问不到。直接输 <b>' + esc(addr) + '</b> 就行，不需要带令牌 —— /api 下是只读静态快照，本来就没有可写的东西。</p>' +
+    '<p class="field-hint">浏览器里是<b>只读模式</b>：能看实时数据（来自后台每 6 秒生成一次的快照），但开关、保存、终端这些写操作要在 KernelSU 里打开才行。</p>';
+}
 function settingsHTML(){
   const p = prefs();
   const egT = thermalState();
@@ -3517,27 +3551,7 @@ function settingsHTML(){
       <div class="row row-edit"><span style="flex:1;text-align:left;color:var(--text)">默认打开的页面</span>${segHTML("tab", [["home", "总览"], ["perf", "性能"], ["thermal", "温度"], ["power", "电源"], ["device", "机型"], ["term", "终端"]])}</div>
     </section>
 
-    <div class="section-head" style="margin-top:2px"><h2>本地 HTTP 服务</h2><span class="hint">浏览器里也能打开</span></div>
-    <section class="card row-list">
-      <div class="row"><span>状态</span><strong class="${egT.webRunning ? "ok" : ""}">${egT.webRunning ? "运行中" : "未运行"}</strong></div>
-      <div class="row"><span>busybox httpd</span><strong class="${egT.webBusybox ? "ok" : "warn"}">${egT.webBusybox ? "可用" : "不可用"}</strong></div>
-      <div class="row"><span>监听地址</span><strong>${esc(addr)}</strong></div>
-      <div class="row"><span>访问令牌</span><strong>${esc(egT.webToken || "--")}</strong></div>
-    </section>
-    <section class="card row-list">
-      <div class="row row-edit"><span style="flex:1;text-align:left;color:var(--text)">开机自动启动</span>${segHTML("http", [["1", "开"], ["0", "关"]])}</div>
-      <div class="row row-edit"><span style="flex:1;text-align:left;color:var(--text)">端口</span>
-        <input class="th-input" id="httpPort" value="${esc(p.port)}" style="width:88px" autocomplete="off"></div>
-    </section>
-    <div class="tagrow" style="padding:2px 4px 0">
-      <button class="chip-btn" data-act="http-save">保存端口并启动</button>
-      <button class="chip-btn" data-act="http-stop">停止服务</button>
-      <button class="chip-btn" data-act="http-copy">复制访问地址</button>
-    </div>
-    <p class="field-hint">只监听 127.0.0.1，局域网和外网都访问不到。直接输
-    <b>${esc(addr)}</b> 就行，不需要带令牌 —— /api 下是只读静态快照，本来就没有可写的东西。</p>
-    <p class="field-hint">浏览器里是<b>只读模式</b>：能看实时数据（来自后台每 6 秒生成一次的快照），
-    但开关、保存、终端这些写操作要在 KernelSU 里打开才行。</p>
+    ${httpSectionHTML()}
 
     <div class="section-head" style="margin-top:2px"><h2>更新</h2></div>
     <div class="tagrow" style="padding:2px 4px 0">
@@ -3555,7 +3569,7 @@ function settingsHTML(){
       <button class="chip-btn" data-act="app-check">重新检测</button>
     </div>
     <p class="field-hint">装了之后桌面上会有个图标，点开直接进这个界面 —— 它自带 ksu 桥，
-    所以和 KernelSU 里打开是一样的完整功能，不是只读预览。</p>
+    功能和在 KernelSU 里打开基本一致（唯一例外：<b>「本地 HTTP 服务」要在 KernelSU 里配置</b>）。</p>
 
     <div class="section-head" style="margin-top:2px"><h2>数据</h2></div>
     <section class="card tools">
