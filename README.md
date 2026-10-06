@@ -1,6 +1,6 @@
 # JeTeeZnTmax
 
-KernelSU 工具箱模块 —— **一个把系统底层信息、机型伪装、温控、应用/进程管理
+KernelSU 工具箱模块 —— **一个把系统底层信息、机型伪装、应用/进程管理
 和「受保护的执行」全塞进一个玻璃拟态 WebUI 的东西。**
 
 作者：**[@JeTeeZnTmax](https://github.com/jeteezntmax)**
@@ -137,11 +137,9 @@ RSS / 状态 / cpuset / cgroup / wchan，可按 CPU / 内存 / PID / UID 排序�
 
 - 环形仪表盘、各核心频率、真实 CPU 占用趋势
 - 实时功率、电池健康 / 循环次数、充电信息、剩余时间
-- **充电控制**（电源页最下面）：充电上限 / 停充恢复 / 慢充 / 功率上限 / 输入限流。
-  每项能力列一串候选节点，按「厂商专属 → 通用」挑第一个**存在且可写**的，
-  找不到就明确回「不支持」—— 探测式，不绑死某一家
-- 温度分类总览、thermal zone 状态、降温限频、充电电流限制
-- **Extreme GT 去温控**集成（见下方"依赖"）
+- **充电保护**（电源页）：到点停充 / 掉电恢复，可手动停充，原值可还原
+- **温度只读**：温度分类总览、thermal zone 状态（写热区功能早已移除 —— 本机写热区会重启 ✗）
+- **CPU 锁频 / 调速器**（游戏加速内）：按目标应用 uid 自动应用与还原
 
 ### 📱 机型伪装
 
@@ -154,7 +152,7 @@ Device Faker 的配置前端（TOML 编辑、模板管理、备份）。
 
 ### 📱 独立桌面 App
 
-`app/` 是真源码，`release/` 有编好的 APK。
+`app/` 是真源码，安装包在模块 zip 的 `app/JeTeeZnTmax.apk`（也随 Release 附件分发）。
 
 它自带 `ksu` 桥，所以**打开就是完整功能，不是只读预览**。
 自带应用图标（走 PackageManager，比 shell 快得多）。
@@ -192,17 +190,6 @@ Device Faker 的配置前端（TOML 编辑、模板管理、备份）。
 > 但 `release/` 里的**安装包**为了开箱可用，打包了它的运行时文件
 > （`device_faker_cli`、`zygisk/arm64-v8a.so`）。**这部分版权归 Seyud，
 > 遵循 GPL-3.0**，可以自由再分发 / 修改，不受本仓库协议约束。
-
-### Extreme GT —— 去温控需要
-
-- 原作者：**嘟嘟ski & AB**
-- 版本：vAB-1.3.0（二改板：无损去温控）
-
-本仓库内有三个**基于它修改**的文件（`eg.sh` / `eg-setup.sh` /
-`sys_thermal_control_config_default.xml`），它们**不属于本人原创，
-不适用本仓库协议**，详见 CREDITS.md。
-
----
 
 ## 目录结构
 
@@ -276,8 +263,7 @@ sh app/build.sh
 - 📌 **但必须**：保留作者署名与版权声明；把你发布的那份**同样以 GPL-3.0 授权**，并**提供对应源码**
 - 📌 **不能**再加任何额外限制（不改署名、不改协议、不加"禁止二改"之类的条款）
 
-第三方组件各自保留原许可：**Device Faker**（GPL-3.0）、**Extreme GT**（原作者授权，
-见 `NOTICE-extreme-gt.txt`）。
+第三方组件保留原许可：**Device Faker**（GPL-3.0，见 `NOTICE-device_faker.txt`）。
 
 完整条款见 [LICENSE](LICENSE)（GPL-3.0 全文）。
 
@@ -298,7 +284,6 @@ sh app/build.sh
 
 - **@月虹yh** —— UI 设计借鉴
 - **Seyud** —— Device Faker
-- **嘟嘟ski & AB** —— Extreme GT
 - **tiann** —— KernelSU
 
 详见 [CREDITS.md](CREDITS.md)。

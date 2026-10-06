@@ -30,17 +30,6 @@
 ---
 
 
-### 对本人的修改说明
-
-`eg-setup.sh` 相对原版改了两处（都是原版的 bug）：
-
-1. `customize.sh` 调用它时没有 export `MODPATH`，子进程读不到变量，
-   导致扫描不到温控 XML、挂载 0 个。改成脚本自己定位 `MODPATH`。
-2. 原版 `for override in "$2"` 把多行列表当成单行处理，
-   导致 XML 覆盖文件是空的。已修正为逐行处理。
-
----
-
 ## 三、UI 设计
 
 - **UI 借鉴：[月虹yh](https://github.com/YueHongYH)（@月虹yh）**
