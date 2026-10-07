@@ -1,3 +1,20 @@
+## v3.5.11 — 修「彩虹悬浮窗」功能列表重复 / 新旧并存（2026-10-05）
+
+**现象**：开着功能提示悬浮窗，在音量键菜单里把 CPU 锁频从 3.8G 改成 3.24G 点应用，
+悬浮窗变成两条 ——「CPU 锁频 3.80G」+「CPU 锁频 3.24G」；有时候还会冒出一堆重复行。
+
+**根因**：**并发**。
+- 菜单点档位走 `setAndApply()`：`set` 完立刻 `apply`（新线程）
+- 主循环每秒的 `decide()` 同时看到 `drift>0`（配置变了、节点还没变）→ **也**去 `apply`
+- 而 `perfmode.sh apply` 是「先 `: > applied.state` 再逐行 `>>`」——
+  两路交错写，就是重复 / 新旧并存
+
+**修法（双保险）**：
+- **App 侧**：加 `PERF_LOCK`，把 `apply` / `restore` / `set` / `boost` 这些写操作串行化；
+  菜单的 `set` + `apply` 作为一个原子单元，不再和保活 apply 撞车
+- **脚本侧**：`applied.state` 改成「写临时文件 → `mv` **原子覆盖**」，
+  就算 WebUI 也并发调 `apply`，也绝不会写出半截内容
+
 ## v3.5.10 — 修「游戏加速 · CPU 锁频」没效果（2026-10-05）
 
 **根因**：ColorOS 把 `/sys/devices/system/cpu/*/cpufreq/scaling_min_freq` 和 `scaling_governor` 的权限设成 **`0444`（只读）**。

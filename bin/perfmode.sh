@@ -28,6 +28,7 @@ BASE=${PERF_BASE:-/data/adb/ksu_toolbox/perf}
 CONF=$BASE/profile.conf
 ORIG=$BASE/orig.state
 APPLIED=$BASE/applied.state
+AT="$APPLIED.$$"          # 临时文件：写完 mv 过去（原子），防并发把列表写花
 CPU=/sys/devices/system/cpu
 DRY=${PERF_DRY:-0}
 
@@ -197,7 +198,7 @@ apply)
         echo "$n" > "$BASE/reverts" 2>/dev/null
         logline "重新应用（第 $n 次）"
     fi
-    : > "$APPLIED"
+    : > "$AT"
     cores=$(big_cores)
     # ① CPU 锁频（超大核 min=max）
     if [ "$freq" != "0" ] && [ -n "$freq" ]; then
@@ -209,12 +210,12 @@ apply)
             [ -n "$lo" ] && [ "$f" -lt "$lo" ] 2>/dev/null && f=$lo
             wr_u $d/scaling_min_freq "$f"; wr_u $d/scaling_max_freq "$f"
         done
-        echo "CPU 锁频 $(awk -v f="$freq" 'BEGIN{printf "%.2fG", f/1000000}')" >> "$APPLIED"
+        echo "CPU 锁频 $(awk -v f="$freq" 'BEGIN{printf "%.2fG", f/1000000}')" >> "$AT"
     fi
     # ② 调速器
     if [ -n "$gov" ]; then
         for c in $cores; do wr_u $CPU/cpu$c/cpufreq/scaling_governor "$gov"; done
-        echo "调速器 $gov" >> "$APPLIED"
+        echo "调速器 $gov" >> "$AT"
     fi
     # ②b 关掉的项 → 从原值还原（用户点了"不动"就该真的不动）
     if [ -z "$gov" ]; then
@@ -250,7 +251,7 @@ apply)
                 fi
               done
             done
-            [ -n "$lbl" ] && echo "$lbl（$n 个进程）" >> "$APPLIED"
+            [ -n "$lbl" ] && echo "$lbl（$n 个进程）" >> "$AT"
         fi
     fi
     # ④ 刷新率（复用 refresh.sh，保活也一起）
@@ -263,15 +264,17 @@ apply)
             settings put system peak_refresh_rate "$rr" >/dev/null 2>&1
             settings put system min_refresh_rate "$rr" >/dev/null 2>&1
         fi
-        echo "刷新率 ${rr}Hz" >> "$APPLIED"
+        echo "刷新率 ${rr}Hz" >> "$AT"
     fi
     if [ -z "$rr" ] || [ "$rr" = "0" ]; then
         RR=/data/adb/modules/ksu_toolbox/bin/refresh.sh
         [ -f "$RR" ] || RR=/data/adb/modules_update/ksu_toolbox/bin/refresh.sh
         [ -f "$RR" ] && sh "$RR" restore >/dev/null 2>&1
     fi
-    echo "state=on" >> "$APPLIED"
+    echo "state=on" >> "$AT"
     logline "apply uid=${uid:-?} freq=${freq:-0} gov=${gov:-未设} aff=${aff:-未设} rr=${rr:-0}"
+    if [ "$DRY" = "1" ]; then rm -f "$AT" 2>/dev/null; else mv -f "$AT" "$APPLIED" 2>/dev/null; fi   # ★ 原子覆盖：并发跑也不会写出半截/重复 ★
+    rm -f "$APPLIED".[0-9]* 2>/dev/null      # 清掉别人崩溃留下的临时文件
     echo "uid=${uids:-}"; echo "已应用（uid=${uids:-未解析}）"
     ;;
 restore)
